@@ -27,7 +27,8 @@ export function makeLogEntry(card, good, now = Date.now()) {
     cardId: card.id,
     ts: now,
     good,
-    intervalBefore: card.state?.interval ?? 0,
+    // FSRS移行後は scheduledDays。旧データ(SM-2)の interval もまだ読める
+    intervalBefore: card.state?.scheduledDays ?? card.state?.interval ?? 0,
   };
 }
 

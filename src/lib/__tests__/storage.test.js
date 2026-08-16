@@ -56,7 +56,7 @@ describe("loadDb", () => {
     const db = loadDb(T0);
     expect(db.version).toBe(SCHEMA_VERSION);
     expect(db.cards).toHaveLength(1);
-    expect(db.cards[0].state).toMatchObject({ reps: 2, interval: 3, ease: 2.5, due: T0 });
+    expect(db.cards[0].state).toMatchObject({ reps: 2, due: T0 }); // dueは動かさない
     expect(db.cards[0].id).not.toBe("seed-0");
     expect(db.stats.totalReviews).toBe(9);
   });

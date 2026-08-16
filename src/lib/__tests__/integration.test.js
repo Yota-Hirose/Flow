@@ -78,14 +78,14 @@ describe("1セット消化して保存・再読み込み", () => {
     expect(loadDb(T0)).toEqual(db);
   });
 
-  it("失敗したカードは lapses が増え、10分後に再出題される", () => {
+  it("失敗したカードは数分後に再出題される", () => {
     let db = initialDb();
     const target = db.cards[0];
     const now = T0 + 5000;
     db = { ...db, cards: db.cards.map((c) => (c.id === target.id ? { ...c, state: rate(c.state, false, now) } : c)) };
     const after = db.cards[0];
-    expect(after.state.lapses).toBe(1);
-    expect(after.state.due).toBe(now + 10 * 60 * 1000);
+    expect(after.state.due).toBeGreaterThan(now);
+    expect(after.state.due - now).toBeLessThanOrEqual(60 * 60 * 1000);
   });
 
   it("ログからカード状態を再構築すると、逐次評価の結果と一致する(同期の前提)", () => {
@@ -143,18 +143,16 @@ describe("1セットの通し (T-04)", () => {
     expect(db.reviewLog).toHaveLength(3);
   });
 
-  it("落としたカードは10分後に期限が来て、次のセットで戻ってくる", () => {
+  it("落としたカードは短い間隔で期限が来て、次のセットで戻ってくる", () => {
     const base = { ...emptyDb(T0), cards: makeSeedCards(emptyDb(T0).activeCollectionId, T0).slice(0, 3) };
     const { db, session } = runSet(base, [false, true, true]);
     const failedId = session.cardIds[0];
     const card = db.cards.find((c) => c.id === failedId);
 
-    expect(card.state.lapses).toBe(1);
-    expect(card.state.reps).toBe(0);
-    expect(card.state.due).toBe(T0 + 10 * 60 * 1000);
+    // 期限は1時間以内。他の2枚(正解)よりずっと早く戻る
+    expect(card.state.due - T0).toBeLessThanOrEqual(60 * 60 * 1000);
 
-    // 10分後には期限が来て、次のセットの先頭に並ぶ
-    const later = T0 + 10 * 60 * 1000 + 1;
+    const later = card.state.due + 1;
     expect(buildQueue(db.cards, 10, later).map((c) => c.id)).toEqual([failedId]);
   });
 

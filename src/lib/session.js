@@ -9,7 +9,7 @@
 // 設計:
 //   - SET_SIZE は「そのセットで触る"別々のカード"の枚数」
 //   - **既定では同セット内で再出題しない。** 10枚セットは必ず10タップで終わる
-//   - 「まだ」のカードは10分後に期限が来て、次のセットで戻ってくる
+//   - 「まだ」のカードはFSRSの再学習ステップ(数分)で期限が来て、次のセットで戻る
 //   - 進捗バーは「枚数」を映す(§4-4)
 //
 // なぜ再出題を既定オフにしたか(2026-08-16の判断):
@@ -67,7 +67,7 @@ export function rateSession(session, good) {
 
   return {
     ...session,
-    // 差し戻さない場合、落としたカードは10分後に期限が来て次のセットで戻る
+    // 差し戻さない場合、落としたカードは数分後に期限が来て次のセットで戻る
     queue: putBack ? reinsert(rest, cardId, session.relearnGap) : rest,
     results: { ...session.results, [cardId]: good ? "good" : "again" },
     attempts: [...session.attempts, { cardId, good }],

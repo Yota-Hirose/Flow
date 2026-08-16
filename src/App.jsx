@@ -20,8 +20,10 @@ import {
   currentCombo,
 } from "./lib/session.js";
 import { makeCollection } from "./lib/migrations.js";
+import { applyReview } from "./lib/stats.js";
+import { useNow } from "./lib/useNow.js";
 import { normalizeSettings } from "./lib/settings.js";
-import { loadDb, saveDb, emptyDb, dayKey } from "./lib/storage.js";
+import { loadDb, saveDb, emptyDb } from "./lib/storage.js";
 
 // 初回起動: 空のDBを作り、シード10枚を既定のコレクションへ入れる。
 // 空のアプリを見せない(SPEC §4.7 / 層Aの「これだけやって、これ?」回避)。
@@ -35,6 +37,10 @@ export default function App() {
   const [view, setView] = useState("home"); // home | session | complete | add | list | settings
   const [session, setSession] = useState(null);
   const [comboPulse, setComboPulse] = useState(0);
+  const [confirmAbort, setConfirmAbort] = useState(false);
+
+  // ホームにいる間だけ「今」を刻む。期限が来たら文言とボタンが自動で変わる(D-7)
+  const now = useNow(view === "home");
 
   // 波括弧は必須。saveDb は成否の真偽値を返すので、そのまま返すと
   // React がクリーンアップ関数と誤認して "destroy is not a function" で落ちる。
@@ -57,19 +63,18 @@ export default function App() {
     [cards, activeCollectionId]
   );
 
-  // NOTE: 時刻の経過では再計算されない(差異 D-7)。ライブ更新は T-07。
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const dueCount = useMemo(() => activeCards.filter((c) => isDue(c.state)).length, [activeCards, view]);
+  const dueCount = useMemo(() => activeCards.filter((c) => isDue(c.state, now)).length, [activeCards, now]);
 
   // 次のセットを組めるか。期限ゼロかつ先取りの持ち駒も冷却中だと組めない(T-04)。
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const canStart = useMemo(() => buildQueue(activeCards, settings.setSize).length > 0, [activeCards, settings.setSize, view]);
+  const canStart = useMemo(
+    () => buildQueue(activeCards, settings.setSize, now).length > 0,
+    [activeCards, settings.setSize, now]
+  );
 
   // 冷却を無視すれば回せるか。「それでも続ける」を出すかの判定に使う。
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const canPush = useMemo(
-    () => buildQueue(activeCards, settings.setSize, Date.now(), { ignoreCooldown: true }).length > 0,
-    [activeCards, settings.setSize, view]
+    () => buildQueue(activeCards, settings.setSize, now, { ignoreCooldown: true }).length > 0,
+    [activeCards, settings.setSize, now]
   );
 
   // ignoreCooldown は「それでも続ける」を押したときだけ真。
@@ -78,6 +83,7 @@ export default function App() {
       const picked = buildQueue(activeCards, settings.setSize, Date.now(), { ignoreCooldown });
       if (picked.length === 0) return;
       setSession(createSession(picked, { relearnInSet: settings.relearnInSet }));
+      setConfirmAbort(false);
       setView("session");
     },
     [activeCards, settings.setSize, settings.relearnInSet]
@@ -89,7 +95,7 @@ export default function App() {
       const cardId = currentCardId(session);
       if (!cardId) return;
 
-      const now = Date.now();
+      const reviewedAt = Date.now();
       const nextSession = rateSession(session, good);
       const finished = isComplete(nextSession);
 
@@ -99,39 +105,20 @@ export default function App() {
 
         // 1レビュー = 1エントリ。FSRS移行(T-08)とリーチカード検出(T-09)の
         // 原資であり、同期(T-21)のマージ単位でもある。
-        const entry = makeLogEntry(card, good, now);
+        const entry = makeLogEntry(card, good, reviewedAt);
 
         const next = {
           ...prev,
           cards: prev.cards.map((c) =>
-            c.id === cardId ? { ...c, state: rate(c.state, good, now), updatedAt: now } : c
+            c.id === cardId ? { ...c, state: rate(c.state, good, reviewedAt), updatedAt: reviewedAt } : c
           ),
           reviewLog: appendLog(prev.reviewLog, entry),
         };
 
-        // NOTE: 統計はセット完走時にしか加算されない(差異 D-8)。
-        // 逐次保存への変更と中断導線の追加は T-07。
-        if (!finished) return next;
-
-        const today = dayKey(now);
-        const yesterday = dayKey(now - 86400000);
-        const s = prev.stats;
-        const streak =
-          s.lastReviewDay === today ? s.streak
-          : s.lastReviewDay === yesterday ? s.streak + 1
-          : 1;
-
+        // 統計は1枚ごとに加算する(差異 D-8)。中断してもレビュー済みは残る
         return {
           ...next,
-          stats: {
-            // 再出題を含めた「実際にめくった回数」で数える。
-            // 落としてから取り返したカードは 1失敗 + 1正解として記録される。
-            totalReviews: s.totalReviews + nextSession.attempts.length,
-            totalCorrect: s.totalCorrect + nextSession.attempts.filter((a) => a.good).length,
-            bestCombo: Math.max(s.bestCombo, bestComboOf(nextSession)),
-            lastReviewDay: today,
-            streak,
-          },
+          stats: applyReview(prev.stats, { good, combo: bestComboOf(nextSession), now: reviewedAt }),
         };
       });
 
@@ -211,7 +198,23 @@ export default function App() {
             </div>
           )}
           {view === "session" && (
-            <div
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              {/* 中断導線(D-8)。誤タップで抜けないよう二段階にする */}
+              <button
+                onClick={() => {
+                  if (confirmAbort) {
+                    setConfirmAbort(false);
+                    setView("home");
+                  } else {
+                    setConfirmAbort(true);
+                    setTimeout(() => setConfirmAbort(false), 3000);
+                  }
+                }}
+                style={{ ...headerBtn, color: confirmAbort ? "var(--red)" : "var(--faint)" }}
+              >
+                {confirmAbort ? "本当にやめる?" : "やめる"}
+              </button>
+              <div
               key={comboPulse}
               style={{
                 fontSize: 13,
@@ -223,6 +226,7 @@ export default function App() {
               }}
             >
               {combo > 0 ? `⚡ ${combo} コンボ` : "今日の5分セット"}
+              </div>
             </div>
           )}
         </div>

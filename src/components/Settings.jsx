@@ -144,7 +144,7 @@ export default function Settings({
           <Toggle on={settings.relearnInSet} onClick={() => onChange({ relearnInSet: !settings.relearnInSet })} />
         </div>
         <div style={{ fontSize: 11, color: "var(--faint)", marginTop: 8, lineHeight: 1.6 }}>
-          オフのとき、落としたカードは10分後に期限が来て次のセットで戻ってくる。
+          オフのとき、落としたカードは短い間隔で期限が来て、次のセットで戻ってくる。
           オンにすると数枚後ろに差し戻され、正解するまでセットが終わらない。
         </div>
       </div>

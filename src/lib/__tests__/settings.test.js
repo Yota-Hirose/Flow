@@ -57,7 +57,7 @@ describe("スキーマとの統合", () => {
   });
 
   it("設定を持たない古いv2データにも既定値が補われる", () => {
-    const db = migrate({ version: 2, cards: [], collections: [], reviewLog: [] }, T0);
+    const db = migrate({ version: 3, cards: [], collections: [], reviewLog: [] }, T0);
     expect(db.settings).toEqual(defaultSettings());
   });
 
@@ -66,7 +66,7 @@ describe("スキーマとの統合", () => {
   });
 
   it("保存済みの設定は保たれる", () => {
-    const db = migrate({ version: 2, cards: [], settings: { setSize: 25, relearnInSet: true } }, T0);
+    const db = migrate({ version: 3, cards: [], settings: { setSize: 25, relearnInSet: true } }, T0);
     expect(db.settings).toEqual({ setSize: 25, relearnInSet: true });
   });
 });

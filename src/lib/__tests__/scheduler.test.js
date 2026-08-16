@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { newCardState, rate, isDue, buildQueue, isRecentlyReviewed, RECENT_REVIEW_COOLDOWN_MS } from "../scheduler.js";
+import { State } from "../fsrs.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 const T0 = 1_700_000_000_000; // 固定の基準時刻(Date.now()に依存しない)
@@ -7,103 +8,119 @@ const T0 = 1_700_000_000_000; // 固定の基準時刻(Date.now()に依存しな
 const card = (id, state) => ({ id, state });
 
 describe("newCardState", () => {
-  it("新規カードは即座に期限到来し、easeは2.5から始まる", () => {
+  it("新規カードは即座に期限到来し、FSRSのNew状態から始まる", () => {
     const s = newCardState(T0);
-    expect(s).toEqual({ reps: 0, interval: 0, ease: 2.5, due: T0, lapses: 0, lastReview: null });
+    expect(s).toMatchObject({ due: T0, reps: 0, lapses: 0, fsrsState: State.New, lastReview: null });
     expect(isDue(s, T0)).toBe(true);
   });
 });
 
-describe("rate — 「できた」の間隔遷移", () => {
-  it("1回目の正解で1日後", () => {
-    const s = rate(newCardState(T0), true, T0);
-    expect(s.reps).toBe(1);
-    expect(s.interval).toBe(1);
-    expect(s.due).toBe(T0 + 1 * DAY);
-  });
-
-  it("2回目の正解で3日後", () => {
-    let s = rate(newCardState(T0), true, T0);
-    s = rate(s, true, T0);
-    expect(s.reps).toBe(2);
-    expect(s.interval).toBe(3);
-    expect(s.due).toBe(T0 + 3 * DAY);
-  });
-
-  it("3回目以降は 前回interval × ease に伸びる", () => {
-    let s = rate(newCardState(T0), true, T0);
-    s = rate(s, true, T0);
-    s = rate(s, true, T0); // 3 * 2.5 = 7.5 → 8
-    expect(s.reps).toBe(3);
-    expect(s.interval).toBe(8);
-    expect(s.due).toBe(T0 + 8 * DAY);
-
-    s = rate(s, true, T0); // 8 * 2.5 = 20
-    expect(s.interval).toBe(20);
-  });
-
-  it("正解でも ease は変化しない", () => {
+describe("rate — 「できた」", () => {
+  it("繰り返すほど間隔が伸びる", () => {
     let s = newCardState(T0);
-    for (let i = 0; i < 5; i++) s = rate(s, true, T0);
-    expect(s.ease).toBe(2.5);
+    let t = T0;
+    const gaps = [];
+    for (let i = 0; i < 5; i++) {
+      s = rate(s, true, t);
+      gaps.push(s.due - t);
+      t = s.due;
+    }
+    // 最初は学習ステップ(分単位)、そこから日単位で伸びていく
+    for (let i = 1; i < gaps.length; i++) expect(gaps[i]).toBeGreaterThan(gaps[i - 1]);
+    expect(gaps.at(-1)).toBeGreaterThan(30 * DAY);
   });
 
-  it("intervalは最低1日を下回らない", () => {
-    // easeが下限まで落ちた状態でも interval は 1 以上
-    let s = { reps: 3, interval: 1, ease: 1.3, due: T0, lapses: 5, lastReview: T0 };
-    s = rate(s, true, T0);
-    expect(s.interval).toBeGreaterThanOrEqual(1);
-  });
-});
-
-describe("rate — 「まだ」の挙動", () => {
-  it("repsとintervalがリセットされ、10分後に再出題される", () => {
+  it("2回目の正解で復習段階に上がる", () => {
     let s = rate(newCardState(T0), true, T0);
-    s = rate(s, true, T0);
-    expect(s.reps).toBe(2);
-
-    s = rate(s, false, T0);
-    expect(s.reps).toBe(0);
-    expect(s.interval).toBe(0);
-    expect(s.due).toBe(T0 + 10 * 60 * 1000);
+    expect(s.fsrsState).toBe(State.Learning);
+    s = rate(s, true, s.due);
+    expect(s.fsrsState).toBe(State.Review);
+    expect(s.due - s.lastReview).toBeGreaterThan(DAY);
   });
 
-  it("easeが0.2ずつ下がる", () => {
-    let s = rate(newCardState(T0), false, T0);
-    expect(s.ease).toBeCloseTo(2.3, 10);
-    s = rate(s, false, T0);
-    expect(s.ease).toBeCloseTo(2.1, 10);
-  });
-
-  it("easeの下限は1.3", () => {
+  it("正解では失敗回数が増えない", () => {
     let s = newCardState(T0);
-    for (let i = 0; i < 20; i++) s = rate(s, false, T0);
-    expect(s.ease).toBe(1.3);
-  });
-});
-
-describe("rate — 復習ログのための記録 (T-03)", () => {
-  it("失敗するたびに lapses が増える", () => {
-    let s = newCardState(T0);
+    let t = T0;
+    for (let i = 0; i < 4; i++) { s = rate(s, true, t); t = s.due; }
     expect(s.lapses).toBe(0);
-    s = rate(s, false, T0);
-    expect(s.lapses).toBe(1);
-    s = rate(s, true, T0);
-    expect(s.lapses).toBe(1); // 正解では増えない
-    s = rate(s, false, T0);
-    expect(s.lapses).toBe(2);
+    expect(s.reps).toBe(4);
   });
 
-  it("lastReview に評価時刻が入る", () => {
-    const s = rate(newCardState(T0), true, T0 + 500);
-    expect(s.lastReview).toBe(T0 + 500);
+  it("safety: Ease Hell が起きない — 失敗を挟んでも間隔は伸びていける", () => {
+    // 旧SM-2では ease が下限1.3に張り付き、間隔が伸びなくなる沼があった。
+    // FSRSでは失敗後も stability が回復し、間隔が伸びる。
+    let s = newCardState(T0);
+    let t = T0;
+    for (let i = 0; i < 3; i++) { s = rate(s, true, t); t = s.due; }
+    for (let i = 0; i < 5; i++) { s = rate(s, false, t); t = s.due; s = rate(s, true, t); t = s.due; }
+    const before = s.scheduledDays;
+    for (let i = 0; i < 4; i++) { s = rate(s, true, t); t = s.due; }
+    expect(s.scheduledDays).toBeGreaterThan(before);
+  });
+});
+
+describe("rate — 「まだ」", () => {
+  it("復習中のカードを落とすと数分後に戻り、失敗回数が増える", () => {
+    let s = newCardState(T0);
+    let t = T0;
+    for (let i = 0; i < 3; i++) { s = rate(s, true, t); t = s.due; }
+    expect(s.lapses).toBe(0);
+
+    const after = rate(s, false, t);
+    expect(after.lapses).toBe(1);
+    expect(after.fsrsState).toBe(State.Relearning);
+    expect(after.due - t).toBeLessThanOrEqual(60 * 60 * 1000); // 1時間以内に戻る
+    expect(after.due).toBeGreaterThan(t);
+  });
+
+  it("一度も覚えていない新規カードの失敗は lapses に数えない", () => {
+    // 知らなかっただけで「忘れた」わけではない
+    const s = rate(newCardState(T0), false, T0);
+    expect(s.lapses).toBe(0);
+    expect(s.due - T0).toBeLessThanOrEqual(60 * 60 * 1000);
+  });
+
+  it("落とすと次の間隔が短くなる", () => {
+    let s = newCardState(T0);
+    let t = T0;
+    for (let i = 0; i < 4; i++) { s = rate(s, true, t); t = s.due; }
+    const longInterval = s.scheduledDays;
+    s = rate(s, false, t);
+    t = s.due;
+    s = rate(s, true, t);
+    expect(s.scheduledDays).toBeLessThan(longInterval);
+  });
+});
+
+describe("rate — 同期の前提となる決定性", () => {
+  it("同じ入力からは必ず同じ結果になる(fuzzを切ってある)", () => {
+    const a = rate(newCardState(T0), true, T0);
+    const b = rate(newCardState(T0), true, T0);
+    expect(a).toEqual(b);
+  });
+
+  it("長い履歴を2回再生しても一致する", () => {
+    const play = () => {
+      let s = newCardState(T0);
+      let t = T0;
+      for (const good of [true, false, true, true, false, true, true, true]) {
+        s = rate(s, good, t);
+        t = s.due;
+      }
+      return s;
+    };
+    expect(play()).toEqual(play());
   });
 
   it("元のstateを破壊しない(純関数)", () => {
     const before = newCardState(T0);
-    const snapshot = { ...before };
+    const snapshot = structuredClone(before);
     rate(before, true, T0);
     expect(before).toEqual(snapshot);
+  });
+
+  it("lastReview に評価時刻が入る", () => {
+    expect(rate(newCardState(T0), true, T0 + 500).lastReview).toBe(T0 + 500);
   });
 });
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { migrate, emptyDb, makeCollection, SCHEMA_VERSION, DEFAULT_COLLECTION } from "../migrations.js";
+import { rate } from "../scheduler.js";
 import { exportDb, importDb } from "../storage.js";
 
 const T0 = 1_700_000_000_000;
@@ -35,13 +36,45 @@ const v1 = {
   stats: { totalReviews: 42, totalCorrect: 30, bestCombo: 7, lastReviewDay: "2026-8-15", streak: 3 },
 };
 
-describe("migrate — v1 から v2 への無損失変換", () => {
-  it("学習の進捗(reps/interval/ease/due)が1つも失われない", () => {
+describe("migrate — v1 から最新版への移行", () => {
+  it("**次に出る日(due)が1日たりとも動かない**", () => {
+    // ここがFSRS移行で最も守るべき点。学習の予定を勝手にずらさない
     const db = migrate(structuredClone(v1), T0);
     expect(db.version).toBe(SCHEMA_VERSION);
     expect(db.cards).toHaveLength(2);
-    expect(db.cards[0].state).toMatchObject({ reps: 3, interval: 8, ease: 2.3, due: T0 + 86400000 });
-    expect(db.cards[1].state).toMatchObject({ reps: 0, interval: 0, ease: 2.5, due: T0 });
+    expect(db.cards[0].state.due).toBe(T0 + 86400000);
+    expect(db.cards[1].state.due).toBe(T0);
+  });
+
+  it("復習回数と失敗回数が引き継がれる", () => {
+    const db = migrate(structuredClone(v1), T0);
+    expect(db.cards[0].state.reps).toBe(3);
+    expect(db.cards[1].state.reps).toBe(0);
+  });
+
+  it("SM-2のinterval/easeがFSRSのstability/difficultyに写る", () => {
+    const db = migrate(structuredClone(v1), T0);
+    const s = db.cards[0].state;
+    expect(s.stability).toBeGreaterThan(0);
+    expect(s.difficulty).toBeGreaterThanOrEqual(1);
+    expect(s.difficulty).toBeLessThanOrEqual(10);
+    expect(s.scheduledDays).toBe(8);
+    expect(s.fsrsState).toBe(2); // Review
+    // easeが下がっていたカードほど難しく評価される
+    expect(s.difficulty).toBeGreaterThan(5);
+  });
+
+  it("一度も触っていないカードは新規のまま(FSRSのNew)", () => {
+    const db = migrate(structuredClone(v1), T0);
+    expect(db.cards[1].state.fsrsState).toBe(0);
+    expect(db.cards[1].state.stability).toBe(0);
+  });
+
+  it("移行後もそのままFSRSで評価を続けられる", () => {
+    const db = migrate(structuredClone(v1), T0);
+    const next = rate(db.cards[0].state, true, T0 + 86400000);
+    expect(next.reps).toBe(4);
+    expect(next.due).toBeGreaterThan(T0 + 86400000);
   });
 
   it("カードの中身(ヒント・英文・メモ・出典)が保たれる", () => {
@@ -85,7 +118,7 @@ describe("migrate — v1 から v2 への無損失変換", () => {
     }
   });
 
-  it("state に lapses と lastReview が追加される", () => {
+  it("state に lapses と lastReview が入る", () => {
     const db = migrate(structuredClone(v1), T0);
     expect(db.cards[0].state.lapses).toBe(0);
     expect(db.cards[0].state.lastReview).toBeNull();
@@ -112,25 +145,26 @@ describe("migrate — 壊れた入力への耐性", () => {
   });
 
   it("cards が配列でなくてもクラッシュしない", () => {
+    expect(migrate({ version: 3, cards: "こわれている" }, T0).cards).toEqual([]);
     expect(migrate({ version: 2, cards: "こわれている" }, T0).cards).toEqual([]);
   });
 
   it("collections が空でも既定のコレクションが補われる", () => {
-    const db = migrate({ version: 2, collections: [], cards: [] }, T0);
+    const db = migrate({ version: 3, collections: [], cards: [] }, T0);
     expect(db.collections).toHaveLength(1);
     expect(db.activeCollectionId).toBe(db.collections[0].id);
   });
 
   it("activeCollectionId が存在しないIDを指していても直る", () => {
     const col = makeCollection(DEFAULT_COLLECTION, T0);
-    const db = migrate({ version: 2, collections: [col], activeCollectionId: "存在しない", cards: [] }, T0);
+    const db = migrate({ version: 3, collections: [col], activeCollectionId: "存在しない", cards: [] }, T0);
     expect(db.activeCollectionId).toBe(col.id);
   });
 
   it("collectionId を持たないカードはアクティブなコレクションに寄せる", () => {
     const col = makeCollection(DEFAULT_COLLECTION, T0);
     const db = migrate(
-      { version: 2, collections: [col], activeCollectionId: col.id, cards: [{ id: "x", state: {} }] },
+      { version: 3, collections: [col], activeCollectionId: col.id, cards: [{ id: "x", state: {} }] },
       T0
     );
     expect(db.cards[0].collectionId).toBe(col.id);

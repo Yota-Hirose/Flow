@@ -1,39 +1,27 @@
 // ------------------------------------------------------------------
-// Flow scheduler: 2択(できた/まだ)用のシンプルなSM-2系スケジューラ。
+// スケジューラ。中身は FSRS(ts-fsrs 公式実装)。
 //
-// 将来 ts-fsrs(FSRS公式実装)に差し替える(T-08)。FSRSは stability /
-// difficulty / lapses / last_review を要求するため、移行時にスキーマ変更は
-// どのみち避けられない。そこで T-03 の時点で lapses と lastReview を持たせ、
-// 併せて追記専用の復習ログ(reviewLog.js)を貯め始めている。
-// ログはFSRSのパラメータ最適化の原資になるので、移行を待たず今から溜める。
+// アプリ側に見せる面は移行前と同じ4つに保ってある:
+//   newCardState / rate / isDue / buildQueue
+// UI もセッション管理も、内部が SM-2 から FSRS に変わったことを知らない。
+//
+// 評価は2択のまま。「まだ」= Again、「できた」= Good に写す。
+// FSRS系のスケジューラは2択でも精度がほとんど落ちないことが知られており、
+// 4択が生む毎カードの判断疲れを避ける(SPEC 原則4)。
+// Hard / Easy は使わない。
+//
+// 「まだ」を押したカードは FSRS の再学習ステップ(既定10分)で戻ってくる。
+// 移行前に自前で持っていた「10分後」と同じ挙動になる。
 // ------------------------------------------------------------------
 
-const DAY = 24 * 60 * 60 * 1000;
-const RELEARN_DELAY_MS = 10 * 60 * 1000; // 「まだ」→ 10分後
+import { emptyState, schedule } from "./fsrs.js";
 
 export function newCardState(now = Date.now()) {
-  return { reps: 0, interval: 0, ease: 2.5, due: now, lapses: 0, lastReview: null };
+  return emptyState(now);
 }
 
 export function rate(state, good, now = Date.now()) {
-  // 旧スキーマのstate(lapses/lastReviewを持たない)が渡っても壊れないよう既定値で埋める
-  const s = { ...newCardState(now), ...state };
-  if (good) {
-    s.reps += 1;
-    if (s.reps === 1) s.interval = 1;
-    else if (s.reps === 2) s.interval = 3;
-    else s.interval = Math.max(1, Math.round(s.interval * s.ease));
-    s.due = now + s.interval * DAY;
-  } else {
-    s.reps = 0;
-    s.interval = 0;
-    // 浮動小数の誤差が蓄積すると ease が 2.0999999 のような値になるため丸める
-    s.ease = Math.max(1.3, Math.round((s.ease - 0.2) * 100) / 100);
-    s.lapses += 1;
-    s.due = now + RELEARN_DELAY_MS;
-  }
-  s.lastReview = now;
-  return s;
+  return schedule(state, good, now);
 }
 
 export function isDue(state, now = Date.now()) {
@@ -47,7 +35,7 @@ export function isActive(card) {
 }
 
 // 「もう1セット」を押した直後に、たった今回したカードが戻ってくるのを防ぐ
-// 冷却時間。失敗カードは due が now+10分 で全カード中いちばん近いため、
+// 冷却時間。失敗カードは due が数分後で全カード中いちばん近いため、
 // 先取り練習のフォールバックだと真っ先に選ばれてしまう(差異 D-2)。
 export const RECENT_REVIEW_COOLDOWN_MS = 30 * 60 * 1000;
 

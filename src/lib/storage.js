@@ -84,9 +84,6 @@ export function importDb(json, now = Date.now()) {
   return db;
 }
 
-export function dayKey(ts = Date.now()) {
-  const d = new Date(ts);
-  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-}
-
 export { emptyDb };
+// 日付キーは統計側の関心事なので stats.js に移した。互換のため再輸出する。
+export { dayKey } from "./stats.js";

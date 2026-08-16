@@ -104,7 +104,7 @@ describe("parseCardLines — カードの生成", () => {
 
   it("新規カードの状態で始まる", () => {
     const { cards } = parse("【A】 x{{c1::y}}z");
-    expect(cards[0].state).toEqual({ reps: 0, interval: 0, ease: 2.5, due: T0, lapses: 0, lastReview: null });
+    expect(cards[0].state).toMatchObject({ reps: 0, lapses: 0, due: T0, lastReview: null, fsrsState: 0 });
   });
 });
 

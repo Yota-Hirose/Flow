@@ -15,12 +15,21 @@
 //   - コレクション(分類軸。多用途化 / §4-7)
 //   - 復習ログ(FSRS移行の原資 / 同期の衝突解決 / リーチカード検出)
 //   - state に lapses と lastReview
+//
+// v2 → v3:
+//   - スケジューラを自前のSM-2から FSRS へ差し替え(T-08)。カードの state を
+//     FSRS の形(stability / difficulty / fsrsState …)に変換する。
+//     **due は1日たりとも動かさない。** 学習の予定を勝手にずらさないため。
 // ------------------------------------------------------------------
 
 import { uuid } from "./id.js";
 import { normalizeSettings, defaultSettings } from "./settings.js";
+import { emptyStats } from "./stats.js";
+import { fromSm2 } from "./fsrs.js";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
+
+export { emptyStats };
 
 export const DEFAULT_COLLECTION = {
   name: "英語",
@@ -38,10 +47,6 @@ export function emptyDb(now = Date.now()) {
     stats: emptyStats(),
     settings: defaultSettings(),
   };
-}
-
-export function emptyStats() {
-  return { totalReviews: 0, totalCorrect: 0, bestCombo: 0, lastReviewDay: null, streak: 0 };
 }
 
 export function makeCollection({ name, promptLabel }, now = Date.now()) {
@@ -72,11 +77,21 @@ export function migrate(data, now = Date.now()) {
 
 const STEPS = {
   1: migrateV1toV2,
+  2: migrateV2toV3,
 };
+
+// SM-2 の state を FSRS の state へ。次に出る日は変えない(詳細は fsrs.js)
+function migrateV2toV3(v2, now) {
+  return {
+    ...v2,
+    version: 3,
+    cards: (Array.isArray(v2.cards) ? v2.cards : []).map((c) => ({ ...c, state: fromSm2(c.state, now) })),
+  };
+}
 
 function migrateV1toV2(v1, now) {
   const collection = makeCollection(DEFAULT_COLLECTION, now);
-  const cards = (v1.cards ?? []).map((c) => ({
+  const cards = (Array.isArray(v1.cards) ? v1.cards : []).map((c) => ({
     id: uuid(), // 旧IDは `seed-0` 等で端末間衝突するため必ず採番し直す
     collectionId: collection.id,
     hint: c.hint ?? "",

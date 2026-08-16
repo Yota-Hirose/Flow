@@ -1,0 +1,49 @@
+:root {
+  --bg: #0e1016;
+  --bg-top: #171a28;
+  --card: #181b26;
+  --card-2: #14161f;
+  --edge: #242837;
+  --ink: #f2f3f7;
+  --dim: #8b90a3;
+  --faint: #565b6e;
+  --mint: #7ce7c4;
+  --red: #f2837a;
+  --violet: #8b7cff;
+  --gold: #ffd583;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: radial-gradient(120% 90% at 50% 0%, var(--bg-top) 0%, var(--bg) 55%);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+button { font-family: inherit; }
+
+@keyframes pop { 0% { transform: scale(1); } 40% { transform: scale(1.28); } 100% { transform: scale(1); } }
+@keyframes riseIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes ringIn { from { stroke-dashoffset: 302; } }
+@keyframes fly {
+  from { transform: translate(0, 0) scale(1); opacity: 1; }
+  to { transform: translate(var(--dx), var(--dy)) scale(0.3); opacity: 0; }
+}
+
+.particle {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: fly 0.8s cubic-bezier(0.16, 0.8, 0.3, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .particle { display: none; }
+  * { animation-duration: 0.01ms !important; }
+}

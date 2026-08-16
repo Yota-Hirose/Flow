@@ -4,83 +4,141 @@ import ReviewCard from "./components/ReviewCard.jsx";
 import SessionComplete from "./components/SessionComplete.jsx";
 import AddCards from "./components/AddCards.jsx";
 import { makeSeedCards } from "./data/seedCards.js";
-import { rate, isDue, buildQueue } from "./lib/scheduler.js";
-import { loadCards, saveCards, loadStats, saveStats, dayKey } from "./lib/storage.js";
+import { rate, isDue, buildQueue, isActive } from "./lib/scheduler.js";
+import { makeLogEntry, appendLog } from "./lib/reviewLog.js";
+import {
+  createSession,
+  currentCardId,
+  isComplete,
+  rateSession,
+  progressSegments,
+  securedCount,
+  stumbledCount,
+  bestComboOf,
+  currentCombo,
+  DEFAULT_SET_SIZE,
+} from "./lib/session.js";
+import { loadDb, saveDb, emptyDb, dayKey } from "./lib/storage.js";
 
-const SET_SIZE = 10;
+// 「そのセットで触る"別々のカード"の枚数」。再出題では増えない(T-04)。
+// 設定から変更できるようにするのは T-24。
+const SET_SIZE = DEFAULT_SET_SIZE;
+
+// 初回起動: 空のDBを作り、シード10枚を既定のコレクションへ入れる。
+// 空のアプリを見せない(SPEC §4.7 / 層Aの「これだけやって、これ?」回避)。
+function initialDb() {
+  const db = emptyDb();
+  return { ...db, cards: makeSeedCards(db.activeCollectionId) };
+}
 
 export default function App() {
-  const [cards, setCards] = useState(() => loadCards() ?? makeSeedCards());
-  const [stats, setStats] = useState(() => loadStats());
+  const [db, setDb] = useState(() => loadDb() ?? initialDb());
   const [view, setView] = useState("home"); // home | session | complete | add
-  const [queue, setQueue] = useState([]);
-  const [pos, setPos] = useState(0);
-  const [results, setResults] = useState([]);
-  const [combo, setCombo] = useState(0);
-  const [bestCombo, setBestCombo] = useState(0);
+  const [session, setSession] = useState(null);
   const [comboPulse, setComboPulse] = useState(0);
 
-  useEffect(() => saveCards(cards), [cards]);
-  useEffect(() => saveStats(stats), [stats]);
+  // 波括弧は必須。saveDb は成否の真偽値を返すので、そのまま返すと
+  // React がクリーンアップ関数と誤認して "destroy is not a function" で落ちる。
+  useEffect(() => {
+    saveDb(db);
+  }, [db]);
 
+  const { cards, stats, collections, activeCollectionId } = db;
+
+  const activeCollection = useMemo(
+    () => collections.find((c) => c.id === activeCollectionId) ?? collections[0],
+    [collections, activeCollectionId]
+  );
+
+  // 出題対象はアクティブなコレクションの、生きているカードだけ(§4-7)。
+  // 他コレクションの枚数・期限はどこにも表示しない(原則3)。
+  const activeCards = useMemo(
+    () => cards.filter((c) => isActive(c) && c.collectionId === activeCollectionId),
+    [cards, activeCollectionId]
+  );
+
+  // NOTE: 時刻の経過では再計算されない(差異 D-7)。ライブ更新は T-07。
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const dueCount = useMemo(() => cards.filter((c) => isDue(c.state)).length, [cards, view]);
+  const dueCount = useMemo(() => activeCards.filter((c) => isDue(c.state)).length, [activeCards, view]);
+
+  // 次のセットを組めるか。期限ゼロかつ先取りの持ち駒も冷却中だと組めない(T-04)。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const canStart = useMemo(() => buildQueue(activeCards, SET_SIZE).length > 0, [activeCards, view]);
 
   const startSession = useCallback(() => {
-    const q = buildQueue(cards, SET_SIZE);
-    if (q.length === 0) return;
-    setQueue(q.map((c) => c.id));
-    setPos(0);
-    setResults([]);
-    setCombo(0);
-    setBestCombo(0);
+    const picked = buildQueue(activeCards, SET_SIZE);
+    if (picked.length === 0) return;
+    setSession(createSession(picked));
     setView("session");
-  }, [cards]);
+  }, [activeCards]);
 
   const handleRate = useCallback(
     (good) => {
-      const cardId = queue[pos];
-      setCards((prev) =>
-        prev.map((c) => (c.id === cardId ? { ...c, state: rate(c.state, good) } : c))
-      );
-      const newResults = [...results, good];
-      setResults(newResults);
-      const newCombo = good ? combo + 1 : 0;
-      const newBest = Math.max(bestCombo, newCombo);
-      setCombo(newCombo);
-      setBestCombo(newBest);
-      if (good) setComboPulse((p) => p + 1);
+      if (!session) return;
+      const cardId = currentCardId(session);
+      if (!cardId) return;
 
-      if (pos + 1 >= queue.length) {
-        setStats((s) => {
-          const today = dayKey();
-          const yesterday = dayKey(Date.now() - 86400000);
-          const streak =
-            s.lastReviewDay === today ? s.streak
-            : s.lastReviewDay === yesterday ? s.streak + 1
-            : 1;
-          return {
-            totalReviews: s.totalReviews + queue.length,
-            totalCorrect: s.totalCorrect + newResults.filter(Boolean).length,
-            bestCombo: Math.max(s.bestCombo, newBest),
+      const now = Date.now();
+      const nextSession = rateSession(session, good);
+      const finished = isComplete(nextSession);
+
+      setDb((prev) => {
+        const card = prev.cards.find((c) => c.id === cardId);
+        if (!card) return prev;
+
+        // 1レビュー = 1エントリ。FSRS移行(T-08)とリーチカード検出(T-09)の
+        // 原資であり、同期(T-21)のマージ単位でもある。
+        const entry = makeLogEntry(card, good, now);
+
+        const next = {
+          ...prev,
+          cards: prev.cards.map((c) =>
+            c.id === cardId ? { ...c, state: rate(c.state, good, now), updatedAt: now } : c
+          ),
+          reviewLog: appendLog(prev.reviewLog, entry),
+        };
+
+        // NOTE: 統計はセット完走時にしか加算されない(差異 D-8)。
+        // 逐次保存への変更と中断導線の追加は T-07。
+        if (!finished) return next;
+
+        const today = dayKey(now);
+        const yesterday = dayKey(now - 86400000);
+        const s = prev.stats;
+        const streak =
+          s.lastReviewDay === today ? s.streak
+          : s.lastReviewDay === yesterday ? s.streak + 1
+          : 1;
+
+        return {
+          ...next,
+          stats: {
+            // 再出題を含めた「実際にめくった回数」で数える。
+            // 落としてから取り返したカードは 1失敗 + 1正解として記録される。
+            totalReviews: s.totalReviews + nextSession.attempts.length,
+            totalCorrect: s.totalCorrect + nextSession.attempts.filter((a) => a.good).length,
+            bestCombo: Math.max(s.bestCombo, bestComboOf(nextSession)),
             lastReviewDay: today,
             streak,
-          };
-        });
-        setView("complete");
-      } else {
-        setPos((p) => p + 1);
-      }
+          },
+        };
+      });
+
+      setSession(nextSession);
+      if (good) setComboPulse((p) => p + 1);
+      if (finished) setView("complete");
     },
-    [queue, pos, results, combo, bestCombo]
+    [session]
   );
 
   const handleAddCards = useCallback((newCards) => {
-    setCards((prev) => [...prev, ...newCards]);
+    setDb((prev) => ({ ...prev, cards: [...prev.cards, ...newCards] }));
   }, []);
 
-  const currentCard = view === "session" ? cards.find((c) => c.id === queue[pos]) : null;
-  const correct = results.filter(Boolean).length;
+  const currentCard =
+    view === "session" && session ? cards.find((c) => c.id === currentCardId(session)) : null;
+  const segments = session ? progressSegments(session) : [];
+  const combo = session ? currentCombo(session) : 0;
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", justifyContent: "center", overflow: "hidden" }}>
@@ -110,19 +168,20 @@ export default function App() {
           )}
         </div>
 
-        {/* progress (session only) */}
+        {/* progress — 1セグメント = 1枚。再出題では増減しない(T-04) */}
         {view === "session" && (
           <div style={{ display: "flex", gap: 4, marginBottom: 26 }}>
-            {queue.map((_, i) => (
+            {segments.map((seg) => (
               <div
-                key={i}
+                key={seg.id}
                 style={{
                   flex: 1,
                   height: 4,
                   borderRadius: 2,
                   background:
-                    i < results.length ? (results[i] ? "var(--mint)" : "var(--red)")
-                    : i === pos ? "var(--violet)"
+                    seg.status === "good" ? "var(--mint)"
+                    : seg.status === "again" ? "var(--red)"
+                    : seg.status === "current" ? "var(--violet)"
                     : "#262a3a",
                   transition: "background .3s",
                 }}
@@ -134,7 +193,8 @@ export default function App() {
         {view === "home" && (
           <Home
             dueCount={dueCount}
-            totalCards={cards.length}
+            totalCards={activeCards.length}
+            canStart={canStart}
             stats={stats}
             onStart={startSession}
             onAddCards={() => setView("add")}
@@ -144,25 +204,28 @@ export default function App() {
         {view === "session" && currentCard && (
           <ReviewCard
             card={currentCard}
-            index={pos}
-            total={queue.length}
+            promptLabel={activeCollection?.promptLabel}
+            secured={securedCount(session)}
+            total={session.cardIds.length}
             onRate={handleRate}
           />
         )}
 
-        {view === "complete" && (
+        {view === "complete" && session && (
           <SessionComplete
-            correct={correct}
-            total={queue.length}
-            bestCombo={bestCombo}
+            correct={securedCount(session)}
+            total={session.cardIds.length}
+            stumbled={stumbledCount(session)}
+            bestCombo={bestComboOf(session)}
             streak={stats.streak}
+            canRestart={canStart}
             onRestart={startSession}
             onHome={() => setView("home")}
           />
         )}
 
         {view === "add" && (
-          <AddCards onAdd={handleAddCards} onBack={() => setView("home")} />
+          <AddCards collectionId={activeCollectionId} onAdd={handleAddCards} onBack={() => setView("home")} />
         )}
       </div>
     </div>

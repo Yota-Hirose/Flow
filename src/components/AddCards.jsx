@@ -7,12 +7,12 @@ const PLACEHOLDER = `1行1カードで貼り付け:
 
 AI(Claude等)に「Anki穴埋め形式で出力して」と頼んだ結果をそのまま貼れます。`;
 
-export default function AddCards({ onAdd, onBack }) {
+export default function AddCards({ collectionId, onAdd, onBack }) {
   const [text, setText] = useState("");
   const [result, setResult] = useState(null);
 
   const handleImport = () => {
-    const { cards, errors } = parseCardLines(text);
+    const { cards, errors } = parseCardLines(text, collectionId);
     if (cards.length > 0) onAdd(cards);
     setResult({ added: cards.length, errors });
     if (cards.length > 0) setText("");

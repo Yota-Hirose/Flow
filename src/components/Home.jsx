@@ -1,38 +1,47 @@
-export default function Home({ dueCount, totalCards, stats, onStart, onAddCards }) {
+export default function Home({ dueCount, totalCards, canStart, stats, onStart, onAddCards }) {
   const hasDue = dueCount > 0;
+  const empty = totalCards === 0;
+  // 期限も無く、先取りの持ち駒も冷却中(T-04)。「ひと区切り」を出す状態。
+  // 同じカードを続けて回させるより、終わったと言えるほうがいい(原則3)。
+  const paused = !empty && !canStart;
+  const disabled = empty || paused;
+
+  const headline = empty ? "はじめよう" : hasDue ? "今日の5分、やる?" : paused ? "今日はここまで" : "今日の分は完了!";
+  const subline = empty
+    ? "まずはカードを追加しよう。"
+    : hasDue
+    ? "ちょうど思い出しどきのカードを1セットだけ用意した。"
+    : paused
+    ? "今できることは全部やった。少し寝かせたほうがよく定着する。"
+    : "先取りで軽く1セット回すこともできる。";
+
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", animation: "riseIn .3s ease both" }}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
         <div style={{ fontSize: 13, color: "var(--dim)", fontWeight: 600, marginBottom: 10 }}>
           {stats.streak > 1 ? `🔥 ${stats.streak}日連続` : "おかえり"}
         </div>
-        <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.4, marginBottom: 14 }}>
-          {hasDue ? "今日の5分、やる?" : "今日の分は完了!"}
-        </div>
+        <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.4, marginBottom: 14 }}>{headline}</div>
         <div style={{ fontSize: 14, color: "var(--faint)", lineHeight: 1.7, maxWidth: 260, marginBottom: 36 }}>
-          {hasDue
-            ? "ちょうど思い出しどきのカードを1セットだけ用意した。"
-            : totalCards > 0
-            ? "先取りで軽く1セット回すこともできる。"
-            : "まずはカードを追加しよう。"}
+          {subline}
         </div>
 
         <button
           onClick={onStart}
-          disabled={totalCards === 0}
+          disabled={disabled}
           style={{
             padding: "18px 52px",
             borderRadius: 18,
             border: "none",
-            background: totalCards === 0 ? "#262a3a" : "linear-gradient(135deg, var(--violet), #6c5ce7)",
-            color: totalCards === 0 ? "var(--faint)" : "#fff",
+            background: disabled ? "#262a3a" : "linear-gradient(135deg, var(--violet), #6c5ce7)",
+            color: disabled ? "var(--faint)" : "#fff",
             fontSize: 17,
             fontWeight: 800,
-            cursor: totalCards === 0 ? "default" : "pointer",
-            boxShadow: totalCards === 0 ? "none" : "0 10px 34px rgba(139,124,255,.32)",
+            cursor: disabled ? "default" : "pointer",
+            boxShadow: disabled ? "none" : "0 10px 34px rgba(139,124,255,.32)",
           }}
         >
-          {hasDue ? "セット開始" : "先取り練習"}
+          {hasDue ? "セット開始" : paused ? "また後で" : "先取り練習"}
         </button>
       </div>
 

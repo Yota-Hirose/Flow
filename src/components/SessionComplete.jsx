@@ -1,4 +1,14 @@
-export default function SessionComplete({ correct, total, bestCombo, streak, onRestart, onHome }) {
+export default function SessionComplete({ correct, total, stumbled = 0, bestCombo, streak, canRestart = true, onRestart, onHome }) {
+  // 再学習(T-04)を入れたので、結果は3通りになった。
+  //  - 全部一発で通した
+  //  - 引っかかったが、その場で取り返した ← 新しく起きるようになったケース
+  //  - 打ち切り上限に達して残った(次のセットに回る)
+  const message =
+    correct < total
+      ? `残った${total - correct}枚は、ちょうどいいタイミングで戻ってくる。`
+      : stumbled > 0
+      ? `${stumbled}枚は引っかかったけど、その場で取り返した。`
+      : "全問クリア。この単語たちはもう君のもの。";
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", animation: "riseIn .5s ease both" }}>
       <svg width="130" height="130" viewBox="0 0 120 120" style={{ marginBottom: 22 }}>
@@ -29,9 +39,7 @@ export default function SessionComplete({ correct, total, bestCombo, streak, onR
         )}
       </div>
       <div style={{ fontSize: 13, color: "var(--faint)", marginBottom: 30, maxWidth: 280, lineHeight: 1.7 }}>
-        {correct === total
-          ? "全問クリア。この単語たちはもう君のもの。"
-          : `外した${total - correct}枚は、ちょうどいいタイミングで戻ってくる。`}
+        {message}
       </div>
 
       <div style={{ display: "flex", gap: 10 }}>
@@ -41,12 +49,14 @@ export default function SessionComplete({ correct, total, bestCombo, streak, onR
         >
           ホームへ
         </button>
-        <button
-          onClick={onRestart}
-          style={{ padding: "15px 34px", borderRadius: 16, border: "none", background: "linear-gradient(135deg, var(--violet), #6c5ce7)", color: "#fff", fontSize: 15, fontWeight: 800, cursor: "pointer", boxShadow: "0 8px 28px rgba(139,124,255,.27)" }}
-        >
-          もう1セット
-        </button>
+        {canRestart && (
+          <button
+            onClick={onRestart}
+            style={{ padding: "15px 34px", borderRadius: 16, border: "none", background: "linear-gradient(135deg, var(--violet), #6c5ce7)", color: "#fff", fontSize: 15, fontWeight: 800, cursor: "pointer", boxShadow: "0 8px 28px rgba(139,124,255,.27)" }}
+          >
+            もう1セット
+          </button>
+        )}
       </div>
     </div>
   );

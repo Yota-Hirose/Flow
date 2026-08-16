@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 
 const SWIPE_THRESHOLD = 90;
 
-export default function ReviewCard({ card, index, total, onRate }) {
+export default function ReviewCard({ card, promptLabel, secured, total, onRate }) {
   const [revealed, setRevealed] = useState(false);
   const [dragY, setDragY] = useState(0);
   const [flying, setFlying] = useState(null);
@@ -139,12 +139,12 @@ export default function ReviewCard({ card, index, total, onRate }) {
 
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--faint)", letterSpacing: "0.08em", fontWeight: 600 }}>
           <span>{card.src || "マイカード"}</span>
-          <span style={{ fontVariantNumeric: "tabular-nums" }}>{index + 1} / {total}</span>
+          <span style={{ fontVariantNumeric: "tabular-nums" }}>{secured} / {total}</span>
         </div>
 
         <div style={{ marginTop: 26 }}>
           <div style={{ fontSize: 12, color: "var(--violet)", fontWeight: 700, letterSpacing: "0.1em", marginBottom: 8 }}>
-            英語で言うと?
+            {promptLabel || "英語で言うと?"}
           </div>
           <div style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.35 }}>{card.hint}</div>
         </div>

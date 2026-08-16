@@ -1,4 +1,4 @@
-import { newCardState } from "../lib/scheduler.js";
+import { makeCard } from "../lib/parser.js";
 
 const RAW = [
   { hint: "通常は・たいてい", pre: "We ", answer: "typically", post: " post a new build every other month.", note: "usuallyのフォーマル版。技術文書頻出", src: "TD UserGuide" },
@@ -13,11 +13,9 @@ const RAW = [
   { hint: "彼はバスで会社に行きます", pre: "He goes ", answer: "to work", post: " by bus.", note: "workは無冠詞。前置詞toの抜けに注意", src: "AIドリル 8/16" },
 ];
 
-export function makeSeedCards(now = Date.now()) {
-  return RAW.map((c, i) => ({
-    id: `seed-${i}`,
-    ...c,
-    createdAt: now,
-    state: newCardState(now),
-  }));
+// NOTE: 以前は `seed-0`〜`seed-9` の固定IDを振っていたため、2台目の端末で
+// 初回起動すると同じIDのカードが独立に生まれ、同期時に衝突していた(D-16)。
+// makeCard 経由でUUIDを振ることで構造的に防ぐ。
+export function makeSeedCards(collectionId, now = Date.now()) {
+  return RAW.map((c) => makeCard(c, collectionId, now));
 }

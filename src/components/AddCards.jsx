@@ -11,9 +11,10 @@ const PLACEHOLDER = `AI(Claude等)に「Anki穴埋め形式で出力して」と
 
 【資料・書類】 I'll send the {{c1::document}} tomorrow.|仕事の「資料送ります」はこれ一語でOK / 出典: AIドリル`;
 
-export default function AddCards({ collectionId, promptLabel, onAdd, onBack }) {
-  const [tab, setTab] = useState("form"); // form | paste
-  const [text, setText] = useState("");
+export default function AddCards({ collectionId, promptLabel, initialText = "", onAdd, onBack }) {
+  // 取り込みリンク(T-29)から来たときは、貼り付けタブをプレビュー済みで開く
+  const [tab, setTab] = useState(initialText ? "paste" : "form");
+  const [text, setText] = useState(initialText);
   const [added, setAdded] = useState(0);
 
   // 貼り付けは取り込む前にプレビューする。以前は件数しか出しておらず、
@@ -34,6 +35,15 @@ export default function AddCards({ collectionId, promptLabel, onAdd, onBack }) {
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", animation: "riseIn .3s ease both", minHeight: 0, overflowY: "auto" }}>
       <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 12 }}>カードを追加</div>
+      {initialText && added === 0 && (
+        <div style={{
+          fontSize: 12, color: "var(--violet)", fontWeight: 700, lineHeight: 1.6,
+          borderRadius: 12, border: "1px solid rgba(139,124,255,.25)", background: "rgba(139,124,255,.07)",
+          padding: "10px 12px", marginBottom: 12,
+        }}>
+          リンクからカードを受け取った。中身を確かめて取り込む。
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
         <Tab active={tab === "form"} onClick={() => setTab("form")}>1枚ずつ</Tab>

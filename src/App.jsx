@@ -26,6 +26,7 @@ import { normalizeSettings } from "./lib/settings.js";
 import { dailyLimit, isDayComplete, nextSetSize } from "./lib/dailyBudget.js";
 import { applyDormancy } from "./lib/dormancy.js";
 import { findLeechInSession, snooze } from "./lib/leech.js";
+import { parseImportHash, clearImportHash } from "./lib/importLink.js";
 import { loadDb, saveDb, emptyDb } from "./lib/storage.js";
 
 // 初回起動: 空のDBを作り、シード10枚を既定のコレクションへ入れる。
@@ -35,9 +36,14 @@ function initialDb() {
   return { ...db, cards: makeSeedCards(db.activeCollectionId) };
 }
 
+// 取り込みリンク(T-29)。フラグメントはサーバに送られないので、
+// カードの中身はブラウザの外に出ない
+const initialImport = typeof location !== "undefined" ? parseImportHash(location.hash) : null;
+
 export default function App() {
   const [db, setDb] = useState(() => loadDb() ?? initialDb());
-  const [view, setView] = useState("home"); // home | session | complete | add | list | settings
+  const [pendingImport, setPendingImport] = useState(initialImport);
+  const [view, setView] = useState(initialImport ? "add" : "home"); // home | session | complete | add | list | settings
   const [session, setSession] = useState(null);
   const [comboPulse, setComboPulse] = useState(0);
   const [confirmAbort, setConfirmAbort] = useState(false);
@@ -45,6 +51,24 @@ export default function App() {
 
   // ホームにいる間だけ「今」を刻む。期限が来たら文言とボタンが自動で変わる(D-7)
   const now = useNow(view === "home");
+
+  // 読んだらフラグメントを消す。残すとリロードのたびに取り込み画面が開く
+  useEffect(() => {
+    if (initialImport) clearImportHash();
+  }, []);
+
+  // アプリを開いたまま別のリンクを踏んだときも拾う
+  useEffect(() => {
+    const onHash = () => {
+      const text = parseImportHash(location.hash);
+      if (!text) return;
+      clearImportHash();
+      setPendingImport(text);
+      setView("add");
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   // 波括弧は必須。saveDb は成否の真偽値を返すので、そのまま返すと
   // React がクリーンアップ関数と誤認して "destroy is not a function" で落ちる。
@@ -333,10 +357,15 @@ export default function App() {
 
         {view === "add" && (
           <AddCards
+            key={pendingImport ? "import" : "add"}
             collectionId={activeCollectionId}
             promptLabel={activeCollection?.promptLabel}
+            initialText={pendingImport ?? ""}
             onAdd={handleAddCards}
-            onBack={() => setView("home")}
+            onBack={() => {
+              setPendingImport(null);
+              setView("home");
+            }}
           />
         )}
 

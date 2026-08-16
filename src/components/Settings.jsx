@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { SET_SIZE_MIN, SET_SIZE_MAX, clampSetSize } from "../lib/settings.js";
+import { SET_SIZE_MIN, SET_SIZE_MAX, DAILY_SETS_MAX, clampSetSize, clampDailySets } from "../lib/settings.js";
 import { exportDb, importDb } from "../lib/storage.js";
 
 // ------------------------------------------------------------------
@@ -134,6 +134,28 @@ export default function Settings({
         </div>
         <div style={{ fontSize: 11, color: "var(--faint)", marginTop: 8, lineHeight: 1.6 }}>
           1回のセットで触るカードの枚数。多くするほど1セットが長くなる。
+        </div>
+      </div>
+
+      {/* --- 1日の上限 (T-28) --- */}
+      <div style={card}>
+        <div style={label}>1日にやるセット数</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <input
+            type="range"
+            min={0}
+            max={DAILY_SETS_MAX}
+            value={settings.dailySets}
+            onChange={(e) => onChange({ dailySets: clampDailySets(e.target.value) })}
+            style={{ flex: 1, accentColor: "var(--violet)" }}
+          />
+          <div style={{ fontSize: 18, fontWeight: 800, fontVariantNumeric: "tabular-nums", minWidth: 52, textAlign: "right" }}>
+            {settings.dailySets === 0 ? "無制限" : settings.dailySets}
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: "var(--faint)", marginTop: 8, lineHeight: 1.6 }}>
+          ここまでやったら「今日の分は終わり」になる。溜まっていても区切りが付くための上限で、
+          その気なら「それでも続ける」で超えられる。無制限にすると終わりが来なくなる。
         </div>
       </div>
 

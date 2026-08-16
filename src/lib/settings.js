@@ -18,6 +18,7 @@ import { DEFAULT_SET_SIZE, DEFAULT_RELEARN_IN_SET } from "./session.js";
 
 export const SET_SIZE_MIN = 3;
 export const SET_SIZE_MAX = 50;
+export const DAILY_SETS_MAX = 10; // これ以上は実質「無制限」なので0(無制限)に寄せる
 
 export function defaultSettings() {
   return {
@@ -25,6 +26,10 @@ export function defaultSettings() {
     // 同セット内で落としたカードを出し直すか。既定オフ。
     // オンにすると「正解するまでセットが終わらない」挙動になる。
     relearnInSet: DEFAULT_RELEARN_IN_SET,
+    // 1日に回すセット数の上限。0 = 無制限(T-28)。
+    // 溜まったときに「今日の分は終わり」と言えるようにするためのもので、
+    // 達しても「それでも続ける」で超えられる。
+    dailySets: 3,
   };
 }
 
@@ -36,7 +41,14 @@ export function normalizeSettings(raw) {
   return {
     setSize: clampSetSize(raw.setSize ?? d.setSize),
     relearnInSet: typeof raw.relearnInSet === "boolean" ? raw.relearnInSet : d.relearnInSet,
+    dailySets: clampDailySets(raw.dailySets ?? d.dailySets),
   };
+}
+
+export function clampDailySets(n) {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v) || v <= 0) return 0; // 0 = 無制限
+  return Math.min(DAILY_SETS_MAX, v);
 }
 
 export function clampSetSize(n) {

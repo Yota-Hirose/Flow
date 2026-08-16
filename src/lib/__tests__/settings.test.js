@@ -5,8 +5,8 @@ import { migrate, emptyDb } from "../migrations.js";
 const T0 = 1_700_000_000_000;
 
 describe("既定値", () => {
-  it("1セット10枚・同セット内の再出題はオフ", () => {
-    expect(defaultSettings()).toEqual({ setSize: 10, relearnInSet: false });
+  it("1セット10枚・再出題はオフ・1日3セットまで", () => {
+    expect(defaultSettings()).toEqual({ setSize: 10, relearnInSet: false, dailySets: 3 });
   });
 });
 
@@ -18,8 +18,15 @@ describe("normalizeSettings — 手編集されたJSONでも落ちない", () =>
   });
 
   it("欠けている項目だけ既定値で補う", () => {
-    expect(normalizeSettings({ setSize: 20 })).toEqual({ setSize: 20, relearnInSet: false });
-    expect(normalizeSettings({ relearnInSet: true })).toEqual({ setSize: 10, relearnInSet: true });
+    expect(normalizeSettings({ setSize: 20 })).toEqual({ setSize: 20, relearnInSet: false, dailySets: 3 });
+    expect(normalizeSettings({ relearnInSet: true })).toEqual({ setSize: 10, relearnInSet: true, dailySets: 3 });
+  });
+
+  it("1日の上限は0で無制限、範囲外は丸める", () => {
+    expect(normalizeSettings({ dailySets: 0 }).dailySets).toBe(0);
+    expect(normalizeSettings({ dailySets: -1 }).dailySets).toBe(0);
+    expect(normalizeSettings({ dailySets: 999 }).dailySets).toBe(10);
+    expect(normalizeSettings({ dailySets: "たくさん" }).dailySets).toBe(0);
   });
 
   it("範囲外の枚数は丸める", () => {
@@ -66,7 +73,7 @@ describe("スキーマとの統合", () => {
   });
 
   it("保存済みの設定は保たれる", () => {
-    const db = migrate({ version: 3, cards: [], settings: { setSize: 25, relearnInSet: true } }, T0);
-    expect(db.settings).toEqual({ setSize: 25, relearnInSet: true });
+    const db = migrate({ version: 3, cards: [], settings: { setSize: 25, relearnInSet: true, dailySets: 5 } }, T0);
+    expect(db.settings).toEqual({ setSize: 25, relearnInSet: true, dailySets: 5 });
   });
 });

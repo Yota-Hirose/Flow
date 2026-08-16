@@ -23,6 +23,9 @@ import { makeCollection } from "./lib/migrations.js";
 import { applyReview } from "./lib/stats.js";
 import { useNow } from "./lib/useNow.js";
 import { normalizeSettings } from "./lib/settings.js";
+import { dailyLimit, isDayComplete, nextSetSize } from "./lib/dailyBudget.js";
+import { applyDormancy } from "./lib/dormancy.js";
+import { findLeechInSession, snooze } from "./lib/leech.js";
 import { loadDb, saveDb, emptyDb } from "./lib/storage.js";
 
 // 初回起動: 空のDBを作り、シード10枚を既定のコレクションへ入れる。
@@ -38,6 +41,7 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [comboPulse, setComboPulse] = useState(0);
   const [confirmAbort, setConfirmAbort] = useState(false);
+  const [editingCardId, setEditingCardId] = useState(null);
 
   // ホームにいる間だけ「今」を刻む。期限が来たら文言とボタンが自動で変わる(D-7)
   const now = useNow(view === "home");
@@ -48,7 +52,7 @@ export default function App() {
     saveDb(db);
   }, [db]);
 
-  const { cards, stats, collections, activeCollectionId } = db;
+  const { cards, stats, collections, activeCollectionId, reviewLog } = db;
   const settings = normalizeSettings(db.settings);
 
   const activeCollection = useMemo(
@@ -65,28 +69,41 @@ export default function App() {
 
   const dueCount = useMemo(() => activeCards.filter((c) => isDue(c.state, now)).length, [activeCards, now]);
 
-  // 次のセットを組めるか。期限ゼロかつ先取りの持ち駒も冷却中だと組めない(T-04)。
+  // 今日の分をやり切ったか(T-28)。溜まっていても「終わり」が来るようにする
+  const dayDone = useMemo(() => isDayComplete(reviewLog, settings, now), [reviewLog, settings, now]);
+
+  // 次のセットを組めるか。予算切れ、または期限ゼロかつ先取りも冷却中だと組めない
   const canStart = useMemo(
-    () => buildQueue(activeCards, settings.setSize, now).length > 0,
-    [activeCards, settings.setSize, now]
+    () => !dayDone && buildQueue(activeCards, settings.setSize, now).length > 0,
+    [dayDone, activeCards, settings.setSize, now]
   );
 
-  // 冷却を無視すれば回せるか。「それでも続ける」を出すかの判定に使う。
+  // 上限や冷却を無視すれば回せるか。「それでも続ける」を出すかの判定に使う。
   const canPush = useMemo(
     () => buildQueue(activeCards, settings.setSize, now, { ignoreCooldown: true }).length > 0,
     [activeCards, settings.setSize, now]
   );
 
-  // ignoreCooldown は「それでも続ける」を押したときだけ真。
+  // ignoreCooldown は「それでも続ける」を押したときだけ真。上限も一緒に無視する。
   const startSession = useCallback(
     (ignoreCooldown = false) => {
-      const picked = buildQueue(activeCards, settings.setSize, Date.now(), { ignoreCooldown });
+      const at = Date.now();
+      // 抱えきれないぶんを寝かせてからキューを組む(T-15)。
+      // セット開始時にだけ走らせる — 画面を開くたびに動かすと落ち着かない
+      const limit = dailyLimit(settings);
+      const adjusted = applyDormancy(db.cards, { dailyLimit: limit, now: at });
+
+      const pool = adjusted.filter((c) => isActive(c) && c.collectionId === activeCollectionId);
+      const size = ignoreCooldown ? settings.setSize : nextSetSize(db.reviewLog, settings, at);
+      const picked = buildQueue(pool, size, at, { ignoreCooldown });
       if (picked.length === 0) return;
+
+      if (adjusted !== db.cards) setDb((prev) => ({ ...prev, cards: adjusted }));
       setSession(createSession(picked, { relearnInSet: settings.relearnInSet }));
       setConfirmAbort(false);
       setView("session");
     },
-    [activeCards, settings.setSize, settings.relearnInSet]
+    [db.cards, db.reviewLog, activeCollectionId, settings]
   );
 
   const handleRate = useCallback(
@@ -171,6 +188,23 @@ export default function App() {
     setDb((prev) => ({ ...prev, activeCollectionId: id }));
   }, []);
 
+  // リーチカード(T-09)。そのセットで触ったカードの中から最大1枚だけ提案する
+  const leech = useMemo(
+    () => (view === "complete" && session ? findLeechInSession(activeCards, reviewLog, session.cardIds) : null),
+    [view, session, activeCards, reviewLog]
+  );
+
+  // 「このままでいい」— 一定期間は黙る。何度も同じ提案をされるほうが苦しい
+  const handleKeepLeech = useCallback((id) => {
+    setDb((prev) => ({ ...prev, cards: prev.cards.map((c) => (c.id === id ? snooze(c) : c)) }));
+  }, []);
+
+  // 「分解する」— 編集画面をそのカードで開く。割る作業自体は人間がやる
+  const handleBreakDownLeech = useCallback((id) => {
+    setEditingCardId(id);
+    setView("list");
+  }, []);
+
   const currentCard =
     view === "session" && session ? cards.find((c) => c.id === currentCardId(session)) : null;
   const segments = session ? progressSegments(session) : [];
@@ -193,7 +227,7 @@ export default function App() {
               {collections.filter((c) => !c.deletedAt).length > 1 && (
                 <span style={{ fontSize: 12, color: "var(--faint)", fontWeight: 700 }}>{activeCollection?.name}</span>
               )}
-              <button onClick={() => setView("list")} style={headerBtn}>カード</button>
+              <button onClick={() => { setEditingCardId(null); setView("list"); }} style={headerBtn}>カード</button>
               <button onClick={() => setView("settings")} style={headerBtn}>設定</button>
             </div>
           )}
@@ -259,6 +293,7 @@ export default function App() {
             totalCards={activeCards.length}
             canStart={canStart}
             canPush={canPush}
+            dayDone={dayDone}
             stats={stats}
             onStart={() => startSession(false)}
             onPush={() => startSession(true)}
@@ -285,8 +320,13 @@ export default function App() {
             streak={stats.streak}
             canRestart={canStart}
             canPush={canPush}
+            dayDone={dayDone}
+            leech={leech}
             onRestart={() => startSession(false)}
             onPush={() => startSession(true)}
+            onBreakDownLeech={handleBreakDownLeech}
+            onDeleteLeech={handleDeleteCard}
+            onKeepLeech={handleKeepLeech}
             onHome={() => setView("home")}
           />
         )}
@@ -302,11 +342,16 @@ export default function App() {
 
         {view === "list" && (
           <CardList
+            key={editingCardId ?? "list"}
             cards={activeCards}
             promptLabel={activeCollection?.promptLabel}
+            initialEditingId={editingCardId}
             onUpdate={handleUpdateCard}
             onDelete={handleDeleteCard}
-            onBack={() => setView("home")}
+            onBack={() => {
+              setEditingCardId(null);
+              setView("home");
+            }}
           />
         )}
 

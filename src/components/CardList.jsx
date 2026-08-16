@@ -11,9 +11,9 @@ import CardEditor, { toSentence } from "./CardEditor.jsx";
 // 未消化枚数(バックログ)ではない。期限や残り枚数は出さない。
 // ------------------------------------------------------------------
 
-export default function CardList({ cards, promptLabel, onUpdate, onDelete, onBack }) {
+export default function CardList({ cards, promptLabel, initialEditingId = null, onUpdate, onDelete, onBack }) {
   const [q, setQ] = useState("");
-  const [editing, setEditing] = useState(null);
+  const [editing, setEditing] = useState(initialEditingId);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();

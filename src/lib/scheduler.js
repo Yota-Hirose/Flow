@@ -34,6 +34,11 @@ export function isActive(card) {
   return !card.deletedAt;
 }
 
+// 休眠中(T-15)のカードも出題しない。削除とは別概念で、余裕が出れば戻る
+export function isServable(card) {
+  return isActive(card) && !card.dormantSince;
+}
+
 // 「もう1セット」を押した直後に、たった今回したカードが戻ってくるのを防ぐ
 // 冷却時間。失敗カードは due が数分後で全カード中いちばん近いため、
 // 先取り練習のフォールバックだと真っ先に選ばれてしまう(差異 D-2)。
@@ -46,7 +51,7 @@ export const RECENT_REVIEW_COOLDOWN_MS = 30 * 60 * 1000;
 // 「そのセットで触る別々のカード」を選ぶところまで。
 // コレクションでの絞り込みは呼び出し側(App.jsx)で行う。
 export function buildQueue(cards, size, now = Date.now(), { ignoreCooldown = false } = {}) {
-  const alive = cards.filter(isActive);
+  const alive = cards.filter(isServable);
   const due = alive.filter((c) => isDue(c.state, now));
 
   // 先取り練習。既定では直近に触ったカードを外し、空になったら空のまま返す。

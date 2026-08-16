@@ -1,18 +1,25 @@
-export default function Home({ dueCount, totalCards, canStart, canPush, stats, onStart, onPush, onAddCards }) {
+export default function Home({ dueCount, totalCards, canStart, canPush, dayDone, stats, onStart, onPush, onAddCards }) {
   const hasDue = dueCount > 0;
   const empty = totalCards === 0;
   // 期限も無く、先取りの持ち駒も冷却中(T-04)。「ひと区切り」を出す状態。
   // 同じカードを続けて回させるより、終わったと言えるほうがいい(原則3)。
   const paused = !empty && !canStart;
   const disabled = empty || paused;
+  // 予算を使い切った状態(T-28)。溜まっていてもここで区切りが付く
+  const budgetDone = paused && dayDone;
 
-  const headline = empty ? "はじめよう" : hasDue ? "今日の5分、やる?" : paused ? "今日はここまで" : "今日の分は完了!";
-  const subline = empty
-    ? "まずはカードを追加しよう。"
-    : hasDue
-    ? "ちょうど思い出しどきのカードを1セットだけ用意した。"
-    : paused
-    ? "今できることは全部やった。少し寝かせたほうがよく定着する。"
+  const headline =
+    empty ? "はじめよう"
+    : hasDue && canStart ? "今日の5分、やる?"
+    : budgetDone ? "今日の分は終わり"
+    : paused ? "今日はここまで"
+    : "今日の分は完了!";
+
+  const subline =
+    empty ? "まずはカードを追加しよう。"
+    : hasDue && canStart ? "ちょうど思い出しどきのカードを1セットだけ用意した。"
+    : budgetDone ? "今日のぶんはやり切った。残りは明日また出てくる。"
+    : paused ? "今できることは全部やった。少し寝かせたほうがよく定着する。"
     : "先取りで軽く1セット回すこともできる。";
 
   // 「それでも続ける」。アプリからは促さないが、続けたい人は止めない。
@@ -58,7 +65,7 @@ export default function Home({ dueCount, totalCards, canStart, canPush, stats, o
             boxShadow: disabled ? "none" : "0 10px 34px rgba(139,124,255,.32)",
           }}
         >
-          {hasDue ? "セット開始" : paused ? "また後で" : "先取り練習"}
+          {canStart && hasDue ? "セット開始" : paused ? "また明日" : "先取り練習"}
         </button>
         {pushButton}
       </div>

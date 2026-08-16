@@ -143,6 +143,8 @@ export function makeCard({ hint, pre = "", answer, post = "", note = "", src = "
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
+    dormantSince: null,
+    leechSnoozedUntil: null,
     state: newCardState(now),
   };
 }

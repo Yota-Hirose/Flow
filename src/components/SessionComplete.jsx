@@ -1,4 +1,5 @@
-export default function SessionComplete({ correct, total, stumbled = 0, bestCombo, streak, canRestart = true, canPush = false, onRestart, onPush, onHome }) {
+export default function SessionComplete({ correct, total, stumbled = 0, bestCombo, streak, canRestart = true, canPush = false, dayDone = false, leech = null,
+  onRestart, onPush, onHome, onBreakDownLeech, onDeleteLeech, onKeepLeech }) {
   // 既定では同セット内の再出題をしないので、外した枚数はそのまま次のセットへ回る。
   // stumbled は設定で再出題を有効にしたとき(T-24)だけ0より大きくなる。
   const message =
@@ -57,7 +58,39 @@ export default function SessionComplete({ correct, total, stumbled = 0, bestComb
         )}
       </div>
 
-      {/* 次の期限までまだ間があるが、続けたい人は止めない */}
+      {/* リーチカードの提案(T-09)。1セットにつき最大1枚、完了画面にだけ出す。
+          「覚えられないあなたが悪い」ではなく「カードの作りを見直そう」の姿勢 */}
+      {leech && (
+        <div style={{
+          marginTop: 24, width: "100%", borderRadius: 16, textAlign: "left",
+          border: "1px solid rgba(255,213,131,.25)", background: "rgba(255,213,131,.05)", padding: "16px 18px",
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "var(--gold)", marginBottom: 8 }}>
+            このカード、苦しんでるね。
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{leech.hint}</div>
+          <div style={{ fontSize: 12, color: "var(--dim)", lineHeight: 1.6, marginBottom: 12 }}>
+            {leech.pre}<span style={{ color: "var(--gold)" }}>{leech.answer}</span>{leech.post}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--faint)", lineHeight: 1.7, marginBottom: 14 }}>
+            覚えられないのは、たいてい1枚に詰め込みすぎているせい。短く割ると急に入る。
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button onClick={() => onBreakDownLeech?.(leech.id)} style={leechPrimary}>分解する</button>
+            <button onClick={() => onDeleteLeech?.(leech.id)} style={leechGhost}>削除する</button>
+            <button onClick={() => onKeepLeech?.(leech.id)} style={leechGhost}>このままでいい</button>
+          </div>
+        </div>
+      )}
+
+      {/* 今日の分をやり切ったことを伝える(溜まっていても区切りを出す / T-28) */}
+      {!canRestart && dayDone && (
+        <div style={{ marginTop: 16, fontSize: 13, color: "var(--dim)", fontWeight: 700 }}>
+          今日の分は終わり。
+        </div>
+      )}
+
+      {/* 続けたい人は止めない */}
       {!canRestart && canPush && (
         <button
           onClick={onPush}
@@ -74,3 +107,13 @@ export default function SessionComplete({ correct, total, stumbled = 0, bestComb
     </div>
   );
 }
+
+const leechPrimary = {
+  padding: "10px 16px", borderRadius: 12, border: "none", cursor: "pointer", fontFamily: "inherit",
+  background: "var(--gold)", color: "#2a2010", fontSize: 13, fontWeight: 800,
+};
+
+const leechGhost = {
+  padding: "10px 16px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
+  border: "1px solid var(--edge)", background: "transparent", color: "var(--dim)", fontSize: 13, fontWeight: 700,
+};

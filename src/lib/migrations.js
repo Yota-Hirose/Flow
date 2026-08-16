@@ -145,6 +145,11 @@ function normalize(db, now) {
       collectionId: c.collectionId ?? activeCollectionId,
       updatedAt: c.updatedAt ?? c.createdAt ?? now,
       deletedAt: c.deletedAt ?? null,
+      // 休眠(T-15)。stateではなくカード側に持つ — rebuildStateがstateを
+      // 作り直しても休眠状態が消えないようにするため
+      dormantSince: c.dormantSince ?? null,
+      // リーチ提案を「そのまま」で見送った期限(T-09)
+      leechSnoozedUntil: c.leechSnoozedUntil ?? null,
       state: { lapses: 0, lastReview: null, ...c.state },
     })),
     reviewLog: Array.isArray(db.reviewLog) ? db.reviewLog : [],

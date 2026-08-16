@@ -109,7 +109,7 @@ describe("1セット消化して保存・再読み込み", () => {
   });
 });
 
-describe("再学習ありの1セット (T-04)", () => {
+describe("1セットの通し (T-04)", () => {
   // App.jsx の handleRate と同じ順序でデータ層を動かす
   function runSet(db, answers, startAt = T0) {
     let session = createSession(buildQueue(db.cards, 10, startAt));
@@ -133,27 +133,29 @@ describe("再学習ありの1セット (T-04)", () => {
     return { db, session };
   }
 
-  it("落としたカードが同セット内で再出題され、取り返すとセットが終わる", () => {
+  it("落としても同セット内では戻らず、枚数ぶんのタップで終わる", () => {
     const base = { ...emptyDb(T0), cards: makeSeedCards(emptyDb(T0).activeCollectionId, T0).slice(0, 3) };
-    // c0を落とす → c1正解 → c2正解 → 戻ってきたc0を正解
-    const { db, session } = runSet(base, [false, true, true, true]);
+    const { db, session } = runSet(base, [false, true, true]);
 
     expect(isComplete(session)).toBe(true);
-    expect(securedCount(session)).toBe(3);
-    expect(session.attempts).toHaveLength(4); // 4回めくった
-    expect(session.cardIds).toHaveLength(3); // でも「枚数」は3のまま
-    expect(db.reviewLog).toHaveLength(4); // ログは評価回数ぶん
+    expect(session.attempts).toHaveLength(3); // 3枚 = 3タップ
+    expect(securedCount(session)).toBe(2); // 落とした1枚は確保できていない
+    expect(db.reviewLog).toHaveLength(3);
   });
 
-  it("落として取り返したカードは lapses が1、最終的な間隔は1日", () => {
+  it("落としたカードは10分後に期限が来て、次のセットで戻ってくる", () => {
     const base = { ...emptyDb(T0), cards: makeSeedCards(emptyDb(T0).activeCollectionId, T0).slice(0, 3) };
-    const { db, session } = runSet(base, [false, true, true, true]);
-    const firstId = session.cardIds[0];
-    const card = db.cards.find((c) => c.id === firstId);
+    const { db, session } = runSet(base, [false, true, true]);
+    const failedId = session.cardIds[0];
+    const card = db.cards.find((c) => c.id === failedId);
 
     expect(card.state.lapses).toBe(1);
-    expect(card.state.reps).toBe(1); // 取り返して1回目の正解
-    expect(card.state.interval).toBe(1);
+    expect(card.state.reps).toBe(0);
+    expect(card.state.due).toBe(T0 + 10 * 60 * 1000);
+
+    // 10分後には期限が来て、次のセットの先頭に並ぶ
+    const later = T0 + 10 * 60 * 1000 + 1;
+    expect(buildQueue(db.cards, 10, later).map((c) => c.id)).toEqual([failedId]);
   });
 
   it("完了直後に「もう1セット」を押しても、たった今のカードは出ない (D-2)", () => {
@@ -172,12 +174,23 @@ describe("再学習ありの1セット (T-04)", () => {
     expect(buildQueue(db.cards, 10, later).length).toBeGreaterThan(0);
   });
 
-  it("全部落とし続けてもセットは打ち切り上限で必ず終わる", () => {
+  it("全部落としてもセットは10タップで終わる", () => {
     const base = { ...emptyDb(T0), cards: makeSeedCards(emptyDb(T0).activeCollectionId, T0) };
     const { session } = runSet(base, Array(200).fill(false));
     expect(isComplete(session)).toBe(true);
-    expect(session.attempts.length).toBe(20); // 10枚 × 2
-    expect(securedCount(session)).toBe(0); // 1枚も確保できていない
+    expect(session.attempts.length).toBe(10);
+    expect(securedCount(session)).toBe(0);
+  });
+
+  it("「それでも続ける」を押せば、冷却を無視して回せる", () => {
+    const base = { ...emptyDb(T0), cards: makeSeedCards(emptyDb(T0).activeCollectionId, T0) };
+    const { db } = runSet(base, Array(10).fill(true));
+    const justAfter = T0 + 20000;
+
+    // 既定では止まる(アプリからは促さない)
+    expect(buildQueue(db.cards, 10, justAfter)).toHaveLength(0);
+    // ユーザーが明示的に選べば回せる(原則3が禁じているのは"要求すること")
+    expect(buildQueue(db.cards, 10, justAfter, { ignoreCooldown: true })).toHaveLength(10);
   });
 });
 

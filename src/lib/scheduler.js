@@ -57,16 +57,20 @@ export const RECENT_REVIEW_COOLDOWN_MS = 30 * 60 * 1000;
 // 同セット内での再出題は session.js が担当する(T-04)。ここは
 // 「そのセットで触る別々のカード」を選ぶところまで。
 // コレクションでの絞り込みは呼び出し側(App.jsx)で行う。
-export function buildQueue(cards, size, now = Date.now()) {
+export function buildQueue(cards, size, now = Date.now(), { ignoreCooldown = false } = {}) {
   const alive = cards.filter(isActive);
   const due = alive.filter((c) => isDue(c.state, now));
 
-  // 先取り練習。直近に触ったカードは外す。
+  // 先取り練習。既定では直近に触ったカードを外し、空になったら空のまま返す。
+  // 呼び出し側は「今日はここまで」を出す(アプリからは促さない)。
   //
-  // ここで空になったら、空のまま返す。同じカードを続けて回させるのは
-  // 分散学習の否定(詰め込み)であり、「今日の約束は終わった」と言えることは
-  // 原則3が守ろうとしているものそのもの。呼び出し側は「ひと区切り」を出す。
-  const pool = due.length > 0 ? due : alive.filter((c) => !isRecentlyReviewed(c, now));
+  // ignoreCooldown は「それでも続ける」をユーザーが自分で押したときだけ真になる。
+  // 原則3が禁じているのは"アプリが要求すること"であって、"ユーザーが選べること"
+  // ではない。Ankiにも Custom Study があり、日次上限を明示的に超えられる。
+  const pool =
+    due.length > 0 ? due
+    : ignoreCooldown ? alive
+    : alive.filter((c) => !isRecentlyReviewed(c, now));
 
   return [...pool].sort((a, b) => a.state.due - b.state.due).slice(0, size);
 }

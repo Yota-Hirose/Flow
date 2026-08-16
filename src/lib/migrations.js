@@ -3,7 +3,10 @@
 //
 // これが無い状態でカード構造を変えると、ドッグフーディングで貯めた実学習
 // 履歴(SPEC §9 の30日連続KPIの根拠そのもの)が壊れる。復旧手段も無かった。
-// 以降、構造を変えるときは必ずここに1段追加する。
+//
+// バージョンを上げる基準: **既存データの変換が要るときだけ**。
+// 既定値を入れれば済む純粋な追加(例: settings)は normalize() が吸収するので
+// 段を増やさない。逆に、意味の変わるフィールド改名・型変更・分解は必ず1段追加する。
 //
 // v1 → v2 で入れたもの:
 //   - カードIDのUUID化(端末間の衝突防止 / T-21の前提)
@@ -15,6 +18,7 @@
 // ------------------------------------------------------------------
 
 import { uuid } from "./id.js";
+import { normalizeSettings, defaultSettings } from "./settings.js";
 
 export const SCHEMA_VERSION = 2;
 
@@ -32,6 +36,7 @@ export function emptyDb(now = Date.now()) {
     cards: [],
     reviewLog: [],
     stats: emptyStats(),
+    settings: defaultSettings(),
   };
 }
 
@@ -102,6 +107,7 @@ function migrateV1toV2(v1, now) {
     cards,
     reviewLog: [],
     stats: { ...emptyStats(), ...v1.stats },
+    settings: defaultSettings(),
   };
 }
 
@@ -128,5 +134,6 @@ function normalize(db, now) {
     })),
     reviewLog: Array.isArray(db.reviewLog) ? db.reviewLog : [],
     stats: { ...emptyStats(), ...db.stats },
+    settings: normalizeSettings(db.settings),
   };
 }

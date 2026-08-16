@@ -3,6 +3,8 @@ import Home from "./components/Home.jsx";
 import ReviewCard from "./components/ReviewCard.jsx";
 import SessionComplete from "./components/SessionComplete.jsx";
 import AddCards from "./components/AddCards.jsx";
+import CardList from "./components/CardList.jsx";
+import Settings from "./components/Settings.jsx";
 import { makeSeedCards } from "./data/seedCards.js";
 import { rate, isDue, buildQueue, isActive } from "./lib/scheduler.js";
 import { makeLogEntry, appendLog } from "./lib/reviewLog.js";
@@ -16,13 +18,10 @@ import {
   stumbledCount,
   bestComboOf,
   currentCombo,
-  DEFAULT_SET_SIZE,
 } from "./lib/session.js";
+import { makeCollection } from "./lib/migrations.js";
+import { normalizeSettings } from "./lib/settings.js";
 import { loadDb, saveDb, emptyDb, dayKey } from "./lib/storage.js";
-
-// 「そのセットで触る"別々のカード"の枚数」。再出題では増えない(T-04)。
-// 設定から変更できるようにするのは T-24。
-const SET_SIZE = DEFAULT_SET_SIZE;
 
 // 初回起動: 空のDBを作り、シード10枚を既定のコレクションへ入れる。
 // 空のアプリを見せない(SPEC §4.7 / 層Aの「これだけやって、これ?」回避)。
@@ -33,7 +32,7 @@ function initialDb() {
 
 export default function App() {
   const [db, setDb] = useState(() => loadDb() ?? initialDb());
-  const [view, setView] = useState("home"); // home | session | complete | add
+  const [view, setView] = useState("home"); // home | session | complete | add | list | settings
   const [session, setSession] = useState(null);
   const [comboPulse, setComboPulse] = useState(0);
 
@@ -44,6 +43,7 @@ export default function App() {
   }, [db]);
 
   const { cards, stats, collections, activeCollectionId } = db;
+  const settings = normalizeSettings(db.settings);
 
   const activeCollection = useMemo(
     () => collections.find((c) => c.id === activeCollectionId) ?? collections[0],
@@ -63,14 +63,25 @@ export default function App() {
 
   // 次のセットを組めるか。期限ゼロかつ先取りの持ち駒も冷却中だと組めない(T-04)。
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const canStart = useMemo(() => buildQueue(activeCards, SET_SIZE).length > 0, [activeCards, view]);
+  const canStart = useMemo(() => buildQueue(activeCards, settings.setSize).length > 0, [activeCards, settings.setSize, view]);
 
-  const startSession = useCallback(() => {
-    const picked = buildQueue(activeCards, SET_SIZE);
-    if (picked.length === 0) return;
-    setSession(createSession(picked));
-    setView("session");
-  }, [activeCards]);
+  // 冷却を無視すれば回せるか。「それでも続ける」を出すかの判定に使う。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const canPush = useMemo(
+    () => buildQueue(activeCards, settings.setSize, Date.now(), { ignoreCooldown: true }).length > 0,
+    [activeCards, settings.setSize, view]
+  );
+
+  // ignoreCooldown は「それでも続ける」を押したときだけ真。
+  const startSession = useCallback(
+    (ignoreCooldown = false) => {
+      const picked = buildQueue(activeCards, settings.setSize, Date.now(), { ignoreCooldown });
+      if (picked.length === 0) return;
+      setSession(createSession(picked, { relearnInSet: settings.relearnInSet }));
+      setView("session");
+    },
+    [activeCards, settings.setSize, settings.relearnInSet]
+  );
 
   const handleRate = useCallback(
     (good) => {
@@ -135,6 +146,44 @@ export default function App() {
     setDb((prev) => ({ ...prev, cards: [...prev.cards, ...newCards] }));
   }, []);
 
+  const handleUpdateCard = useCallback((id, fields) => {
+    const now = Date.now();
+    setDb((prev) => ({
+      ...prev,
+      cards: prev.cards.map((c) => (c.id === id ? { ...c, ...fields, updatedAt: now } : c)),
+    }));
+  }, []);
+
+  // ソフト削除。配列からは消さない — 同期(T-21)で削除を伝えるtombstoneになる
+  const handleDeleteCard = useCallback((id) => {
+    const now = Date.now();
+    setDb((prev) => ({
+      ...prev,
+      cards: prev.cards.map((c) => (c.id === id ? { ...c, deletedAt: now, updatedAt: now } : c)),
+    }));
+  }, []);
+
+  const handleSettings = useCallback((patch) => {
+    setDb((prev) => ({ ...prev, settings: normalizeSettings({ ...normalizeSettings(prev.settings), ...patch }) }));
+  }, []);
+
+  const handleAddCollection = useCallback((name) => {
+    const col = makeCollection({ name });
+    setDb((prev) => ({ ...prev, collections: [...prev.collections, col], activeCollectionId: col.id }));
+  }, []);
+
+  const handleRenameCollection = useCallback((id, patch) => {
+    const now = Date.now();
+    setDb((prev) => ({
+      ...prev,
+      collections: prev.collections.map((c) => (c.id === id ? { ...c, ...patch, updatedAt: now } : c)),
+    }));
+  }, []);
+
+  const handleSelectCollection = useCallback((id) => {
+    setDb((prev) => ({ ...prev, activeCollectionId: id }));
+  }, []);
+
   const currentCard =
     view === "session" && session ? cards.find((c) => c.id === currentCardId(session)) : null;
   const segments = session ? progressSegments(session) : [];
@@ -151,6 +200,16 @@ export default function App() {
           >
             FLOW<span style={{ color: "var(--violet)" }}>.</span>
           </div>
+          {view === "home" && (
+            <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+              {/* コレクション名。切り替えは設定の中(ホームに一覧を出すと原則3が崩れる) */}
+              {collections.filter((c) => !c.deletedAt).length > 1 && (
+                <span style={{ fontSize: 12, color: "var(--faint)", fontWeight: 700 }}>{activeCollection?.name}</span>
+              )}
+              <button onClick={() => setView("list")} style={headerBtn}>カード</button>
+              <button onClick={() => setView("settings")} style={headerBtn}>設定</button>
+            </div>
+          )}
           {view === "session" && (
             <div
               key={comboPulse}
@@ -195,8 +254,10 @@ export default function App() {
             dueCount={dueCount}
             totalCards={activeCards.length}
             canStart={canStart}
+            canPush={canPush}
             stats={stats}
-            onStart={startSession}
+            onStart={() => startSession(false)}
+            onPush={() => startSession(true)}
             onAddCards={() => setView("add")}
           />
         )}
@@ -219,15 +280,58 @@ export default function App() {
             bestCombo={bestComboOf(session)}
             streak={stats.streak}
             canRestart={canStart}
-            onRestart={startSession}
+            canPush={canPush}
+            onRestart={() => startSession(false)}
+            onPush={() => startSession(true)}
             onHome={() => setView("home")}
           />
         )}
 
         {view === "add" && (
-          <AddCards collectionId={activeCollectionId} onAdd={handleAddCards} onBack={() => setView("home")} />
+          <AddCards
+            collectionId={activeCollectionId}
+            promptLabel={activeCollection?.promptLabel}
+            onAdd={handleAddCards}
+            onBack={() => setView("home")}
+          />
+        )}
+
+        {view === "list" && (
+          <CardList
+            cards={activeCards}
+            promptLabel={activeCollection?.promptLabel}
+            onUpdate={handleUpdateCard}
+            onDelete={handleDeleteCard}
+            onBack={() => setView("home")}
+          />
+        )}
+
+        {view === "settings" && (
+          <Settings
+            db={db}
+            settings={settings}
+            collections={collections}
+            activeCollectionId={activeCollectionId}
+            onChange={handleSettings}
+            onReplaceDb={setDb}
+            onSelectCollection={handleSelectCollection}
+            onAddCollection={handleAddCollection}
+            onRenameCollection={handleRenameCollection}
+            onBack={() => setView("home")}
+          />
         )}
       </div>
     </div>
   );
 }
+
+const headerBtn = {
+  border: "none",
+  background: "transparent",
+  color: "var(--dim)",
+  fontSize: 12,
+  fontWeight: 700,
+  cursor: "pointer",
+  padding: 0,
+  fontFamily: "inherit",
+};

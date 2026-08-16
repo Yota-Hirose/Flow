@@ -1,4 +1,4 @@
-export default function Home({ dueCount, totalCards, canStart, stats, onStart, onAddCards }) {
+export default function Home({ dueCount, totalCards, canStart, canPush, stats, onStart, onPush, onAddCards }) {
   const hasDue = dueCount > 0;
   const empty = totalCards === 0;
   // 期限も無く、先取りの持ち駒も冷却中(T-04)。「ひと区切り」を出す状態。
@@ -14,6 +14,23 @@ export default function Home({ dueCount, totalCards, canStart, stats, onStart, o
     : paused
     ? "今できることは全部やった。少し寝かせたほうがよく定着する。"
     : "先取りで軽く1セット回すこともできる。";
+
+  // 「それでも続ける」。アプリからは促さないが、続けたい人は止めない。
+  // 原則3が禁じているのは"アプリが要求すること"であって"ユーザーが選べること"
+  // ではない(Ankiにも Custom Study がある)。
+  const pushButton = paused && canPush && (
+    <button
+      onClick={onPush}
+      style={{
+        marginTop: 18, padding: "10px 18px", borderRadius: 12,
+        border: "none", background: "transparent", color: "var(--faint)",
+        fontSize: 13, fontWeight: 600, cursor: "pointer", textDecoration: "underline",
+        textUnderlineOffset: 4, textDecorationColor: "var(--edge)",
+      }}
+    >
+      それでも続ける
+    </button>
+  );
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", animation: "riseIn .3s ease both" }}>
@@ -43,6 +60,7 @@ export default function Home({ dueCount, totalCards, canStart, stats, onStart, o
         >
           {hasDue ? "セット開始" : paused ? "また後で" : "先取り練習"}
         </button>
+        {pushButton}
       </div>
 
       <div style={{ display: "flex", gap: 10, marginTop: 24 }}>

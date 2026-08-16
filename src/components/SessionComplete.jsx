@@ -1,11 +1,9 @@
-export default function SessionComplete({ correct, total, stumbled = 0, bestCombo, streak, canRestart = true, onRestart, onHome }) {
-  // 再学習(T-04)を入れたので、結果は3通りになった。
-  //  - 全部一発で通した
-  //  - 引っかかったが、その場で取り返した ← 新しく起きるようになったケース
-  //  - 打ち切り上限に達して残った(次のセットに回る)
+export default function SessionComplete({ correct, total, stumbled = 0, bestCombo, streak, canRestart = true, canPush = false, onRestart, onPush, onHome }) {
+  // 既定では同セット内の再出題をしないので、外した枚数はそのまま次のセットへ回る。
+  // stumbled は設定で再出題を有効にしたとき(T-24)だけ0より大きくなる。
   const message =
     correct < total
-      ? `残った${total - correct}枚は、ちょうどいいタイミングで戻ってくる。`
+      ? `外した${total - correct}枚は、ちょうどいいタイミングで戻ってくる。`
       : stumbled > 0
       ? `${stumbled}枚は引っかかったけど、その場で取り返した。`
       : "全問クリア。この単語たちはもう君のもの。";
@@ -58,6 +56,21 @@ export default function SessionComplete({ correct, total, stumbled = 0, bestComb
           </button>
         )}
       </div>
+
+      {/* 次の期限までまだ間があるが、続けたい人は止めない */}
+      {!canRestart && canPush && (
+        <button
+          onClick={onPush}
+          style={{
+            marginTop: 18, padding: "10px 18px", borderRadius: 12, border: "none",
+            background: "transparent", color: "var(--faint)", fontSize: 13, fontWeight: 600,
+            cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 4,
+            textDecorationColor: "var(--edge)",
+          }}
+        >
+          それでも続ける
+        </button>
+      )}
     </div>
   );
 }

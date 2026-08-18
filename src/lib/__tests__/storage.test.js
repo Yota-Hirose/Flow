@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { loadDb, saveDb, dayKey } from "../storage.js";
 import { emptyDb, SCHEMA_VERSION } from "../migrations.js";
+import { deriveStats } from "../stats.js";
 
 const T0 = 1_700_000_000_000;
 
@@ -58,7 +59,7 @@ describe("loadDb", () => {
     expect(db.cards).toHaveLength(1);
     expect(db.cards[0].state).toMatchObject({ reps: 2, due: T0 }); // dueは動かさない
     expect(db.cards[0].id).not.toBe("seed-0");
-    expect(db.stats.totalReviews).toBe(9);
+    expect(deriveStats(db.reviewLog, db.statsBase).totalReviews).toBe(9);
   });
 
   it("移行結果が新キーに書き込まれ、旧キーは復旧用に残る", () => {

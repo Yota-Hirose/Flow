@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { SET_SIZE_MIN, SET_SIZE_MAX, DAILY_SETS_MAX, clampSetSize, clampDailySets } from "../lib/settings.js";
 import { exportDb, importDb } from "../lib/storage.js";
+import Account from "./Account.jsx";
 
 // ------------------------------------------------------------------
 // 設定(T-24)。
@@ -21,7 +22,7 @@ const ghost = {
 };
 
 export default function Settings({
-  db, settings, collections, activeCollectionId,
+  db, settings, collections, activeCollectionId, sync,
   onChange, onReplaceDb, onSelectCollection, onAddCollection, onRenameCollection, onBack,
 }) {
   const [notice, setNotice] = useState(null);
@@ -57,6 +58,8 @@ export default function Settings({
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", animation: "riseIn .3s ease both", overflowY: "auto", minHeight: 0 }}>
       <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>設定</div>
+
+      {sync && <Account sync={sync} />}
 
       {/* --- 学習中のコレクション (T-26) --- */}
       <div style={card}>

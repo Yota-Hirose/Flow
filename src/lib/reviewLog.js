@@ -15,6 +15,7 @@
 
 import { uuid } from "./id.js";
 import { newCardState, rate } from "./scheduler.js";
+import { foldEntries } from "./stats.js";
 
 // 容量上限。localStorageは端末あたり数MB程度しか使えないため、
 // 際限なく貯めるとある日書き込みが失敗する。古いものから捨てる。
@@ -53,6 +54,36 @@ export function rebuildState(entries, createdAt) {
   let state = newCardState(createdAt);
   for (const e of ordered) state = rate(state, e.good, e.ts);
   return state;
+}
+
+// ------------------------------------------------------------------
+// DBへの追記。リングバッファから溢れたぶんを statsBase へ畳み込んでから
+// 捨てる。畳み込まずに捨てると総レビュー数が減っていき、「積み上げたものが
+// 目減りする」という一番やってはいけない見え方になる(stats.js 参照)。
+// ------------------------------------------------------------------
+
+export function appendReview(db, entry, max = MAX_LOG_ENTRIES) {
+  const next = [...(db.reviewLog ?? []), entry];
+  const overflow = next.length - max;
+  if (overflow <= 0) return { ...db, reviewLog: next };
+  return {
+    ...db,
+    reviewLog: next.slice(overflow),
+    statsBase: foldEntries(db.statsBase, next.slice(0, overflow)),
+  };
+}
+
+// マージ版。溢れた分の扱いは appendReview と同じ
+export function mergeReviewLogs(statsBase, a, b, max = MAX_LOG_ENTRIES) {
+  const seen = new Map();
+  for (const e of [...(a ?? []), ...(b ?? [])]) seen.set(e.id, e);
+  const merged = [...seen.values()].sort((x, y) => x.ts - y.ts || (x.id < y.id ? -1 : 1));
+  const overflow = merged.length - max;
+  if (overflow <= 0) return { reviewLog: merged, statsBase };
+  return {
+    reviewLog: merged.slice(overflow),
+    statsBase: foldEntries(statsBase, merged.slice(0, overflow)),
+  };
 }
 
 export function logsByCard(log, cardId) {

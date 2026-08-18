@@ -16,6 +16,8 @@
 - **取り込みリンク**: Claudeが出したリンクをタップすると、取り込み画面がプレビュー済みで開く (`IMPORT_LINK.md`)
 - **演出**: パーティクル、コンボ(3連続で金色)、ハプティクス、セット完了リング
 - **永続化**: localStorage(`src/lib/storage.js`)。スキーマ版管理・マイグレーション・バックアップ書き出しつき
+- **端末間同期(任意)**: マジックリンクでログインすると、カードと学習記録がスマホとPCで揃う。
+  **ログインしなくても全機能が使え、その場合データは端末から出ません** (`SYNC_SETUP.md`)
 - 初回はこのチャットで作った実カード10枚がシードとして入っています
 
 ## 開発
@@ -31,6 +33,13 @@ npm run build    # dist/ に静的ビルド
 ## デプロイ
 
 静的サイトなのでどこでも動きます。
+
+> **Vercel の Hobby プランは商用利用が禁止されています。** 収益化する場合は Pro($20/月)か、
+> Cloudflare Pages への移行が要ります(`COST_ESTIMATE.md`)。
+>
+> 同期を有効にする場合、`VITE_SUPABASE_URL` と `VITE_SUPABASE_PUBLISHABLE_KEY` を
+> ホスティング側の環境変数に登録してから**再デプロイ**してください
+> (`VITE_` 変数はビルド時にバンドルへ埋め込まれるため)。
 
 **Vercel(推奨・最速)**
 ```bash
@@ -57,6 +66,9 @@ src/
   lib/                     # scheduler(FSRS) / session / dailyBudget / dormancy
                            # leech / stats / reviewLog / storage / migrations
                            # settings / parser / id / useNow / __tests__
+  lib/sync/                # merge(純関数) / engine / memoryAdapter
+                           # supabase / useSync / __tests__
+supabase/schema.sql        # 同期用テーブルとRLS
   data/seedCards.js        # シード10枚
 ```
 
@@ -66,5 +78,7 @@ src/
 - **`IMPLEMENTATION_PLAN.md`** — 今どこにいて、次に何をどの順で作るか。タスクIDと受け入れ条件
 - **`IMPORT_LINK.md`** — 取り込みリンクの仕様と、Claudeに出してもらうためのプロンプト
 - **`COST_ESTIMATE.md`** — 同期のサーバーコスト試算
+- **`SYNC_SETUP.md`** — 同期を有効にする手順(Supabaseプロジェクト作成、所要10分)
+- **`PRIVACY.md`** — プライバシーポリシー草案(**法務レビュー未了**)
 
 ロードマップは SPEC.md §8 が正。ここには置かない(二重管理になるため)。

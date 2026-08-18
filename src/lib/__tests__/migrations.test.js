@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { migrate, emptyDb, makeCollection, SCHEMA_VERSION, DEFAULT_COLLECTION } from "../migrations.js";
 import { rate } from "../scheduler.js";
 import { exportDb, importDb } from "../storage.js";
+import { deriveStats } from "../stats.js";
 
 const T0 = 1_700_000_000_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -89,9 +90,9 @@ describe("migrate — v1 から最新版への移行", () => {
     });
   });
 
-  it("統計が保たれる", () => {
+  it("統計が保たれる — 累積値から導出へ移っても数字は変わらない", () => {
     const db = migrate(structuredClone(v1), T0);
-    expect(db.stats).toEqual(v1.stats);
+    expect(deriveStats(db.reviewLog, db.statsBase)).toEqual(v1.stats);
   });
 
   it("固定IDがUUIDに採番し直される(2端末での衝突を防ぐ)", () => {
@@ -198,7 +199,7 @@ describe("エクスポート / インポート", () => {
     const restored = importDb(JSON.stringify(v1), T0);
     expect(restored.version).toBe(SCHEMA_VERSION);
     expect(restored.cards).toHaveLength(2);
-    expect(restored.stats.totalReviews).toBe(42);
+    expect(deriveStats(restored.reviewLog, restored.statsBase).totalReviews).toBe(42);
   });
 
   it("JSONとして不正なら例外を投げる", () => {

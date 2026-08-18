@@ -20,16 +20,23 @@
 //   - スケジューラを自前のSM-2から FSRS へ差し替え(T-08)。カードの state を
 //     FSRS の形(stability / difficulty / fsrsState …)に変換する。
 //     **due は1日たりとも動かさない。** 学習の予定を勝手にずらさないため。
+//
+// v3 → v4(同期の前提 / T-21):
+//   - 累積 stats を廃止し、復習ログからの導出に変える。累積値は2端末で
+//     マージできない(足すと二重、maxを取ると片方が消える)。ログに残って
+//     いない過去だけを statsBase として繰り越す。詳細は stats.js。
+//   - settingsUpdatedAt を追加。設定はログではないので、新旧の判定に
+//     タイムスタンプが要る。
 // ------------------------------------------------------------------
 
 import { uuid } from "./id.js";
 import { normalizeSettings, defaultSettings } from "./settings.js";
-import { emptyStats } from "./stats.js";
+import { emptyStats, emptyBase, baseFromLegacyStats } from "./stats.js";
 import { fromSm2 } from "./fsrs.js";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
-export { emptyStats };
+export { emptyStats, emptyBase };
 
 export const DEFAULT_COLLECTION = {
   name: "英語",
@@ -44,8 +51,10 @@ export function emptyDb(now = Date.now()) {
     activeCollectionId: collection.id,
     cards: [],
     reviewLog: [],
-    stats: emptyStats(),
+    // 統計はログから導出する。ここにあるのは「ログに残っていない過去」だけ
+    statsBase: emptyBase(),
     settings: defaultSettings(),
+    settingsUpdatedAt: 0,
   };
 }
 
@@ -78,7 +87,19 @@ export function migrate(data, now = Date.now()) {
 const STEPS = {
   1: migrateV1toV2,
   2: migrateV2toV3,
+  3: migrateV3toV4,
 };
+
+// 累積statsを繰り越しへ。移行の前後で画面の数字が1も変わらないこと(テスト済み)
+function migrateV3toV4(v3) {
+  const { stats, ...rest } = v3;
+  return {
+    ...rest,
+    version: 4,
+    statsBase: baseFromLegacyStats(stats, Array.isArray(v3.reviewLog) ? v3.reviewLog : []),
+    settingsUpdatedAt: v3.settingsUpdatedAt ?? 0,
+  };
+}
 
 // SM-2 の state を FSRS の state へ。次に出る日は変えない(詳細は fsrs.js)
 function migrateV2toV3(v2, now) {
@@ -153,7 +174,8 @@ function normalize(db, now) {
       state: { lapses: 0, lastReview: null, ...c.state },
     })),
     reviewLog: Array.isArray(db.reviewLog) ? db.reviewLog : [],
-    stats: { ...emptyStats(), ...db.stats },
+    statsBase: { ...emptyBase(), ...(db.statsBase && typeof db.statsBase === "object" ? db.statsBase : null) },
     settings: normalizeSettings(db.settings),
+    settingsUpdatedAt: Number.isFinite(db.settingsUpdatedAt) ? db.settingsUpdatedAt : 0,
   };
 }

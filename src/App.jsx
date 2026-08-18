@@ -7,7 +7,7 @@ import CardList from "./components/CardList.jsx";
 import Settings from "./components/Settings.jsx";
 import { makeSeedCards } from "./data/seedCards.js";
 import { rate, isDue, buildQueue, isActive } from "./lib/scheduler.js";
-import { makeLogEntry, appendLog } from "./lib/reviewLog.js";
+import { makeLogEntry, appendReview } from "./lib/reviewLog.js";
 import {
   createSession,
   currentCardId,
@@ -20,7 +20,7 @@ import {
   currentCombo,
 } from "./lib/session.js";
 import { makeCollection } from "./lib/migrations.js";
-import { applyReview } from "./lib/stats.js";
+import { deriveStats } from "./lib/stats.js";
 import { useNow } from "./lib/useNow.js";
 import { normalizeSettings } from "./lib/settings.js";
 import { dailyLimit, isDayComplete, nextSetSize } from "./lib/dailyBudget.js";
@@ -28,6 +28,7 @@ import { applyDormancy } from "./lib/dormancy.js";
 import { findLeechInSession, snooze } from "./lib/leech.js";
 import { parseImportHash, clearImportHash } from "./lib/importLink.js";
 import { loadDb, saveDb, emptyDb } from "./lib/storage.js";
+import { useSync } from "./lib/sync/useSync.js";
 
 // 初回起動: 空のDBを作り、シード10枚を既定のコレクションへ入れる。
 // 空のアプリを見せない(SPEC §4.7 / 層Aの「これだけやって、これ?」回避)。
@@ -76,8 +77,16 @@ export default function App() {
     saveDb(db);
   }, [db]);
 
-  const { cards, stats, collections, activeCollectionId, reviewLog } = db;
+  // 同期(T-20 / T-21)。**ここで await しない。** ローカルが常に正で、
+  // 同期は後追い。ログインしていなければ何も起きない(原則6)
+  const sync = useSync(db, setDb);
+
+  const { cards, collections, activeCollectionId, reviewLog } = db;
   const settings = normalizeSettings(db.settings);
+
+  // 統計はログから数え直す。累積値を持たないので、同期で合流しても
+  // 二重に増えたり片方が消えたりしない(stats.js)
+  const stats = useMemo(() => deriveStats(reviewLog, db.statsBase), [reviewLog, db.statsBase]);
 
   const activeCollection = useMemo(
     () => collections.find((c) => c.id === activeCollectionId) ?? collections[0],
@@ -148,19 +157,17 @@ export default function App() {
         // 原資であり、同期(T-21)のマージ単位でもある。
         const entry = makeLogEntry(card, good, reviewedAt);
 
-        const next = {
-          ...prev,
-          cards: prev.cards.map((c) =>
-            c.id === cardId ? { ...c, state: rate(c.state, good, reviewedAt), updatedAt: reviewedAt } : c
-          ),
-          reviewLog: appendLog(prev.reviewLog, entry),
-        };
-
-        // 統計は1枚ごとに加算する(差異 D-8)。中断してもレビュー済みは残る
-        return {
-          ...next,
-          stats: applyReview(prev.stats, { good, combo: bestComboOf(nextSession), now: reviewedAt }),
-        };
+        // 統計はここでは触らない。ログに1件積めば導出側が拾う。
+        // セットを完走しなくても記録が残る(差異 D-8)のは変わらない
+        return appendReview(
+          {
+            ...prev,
+            cards: prev.cards.map((c) =>
+              c.id === cardId ? { ...c, state: rate(c.state, good, reviewedAt), updatedAt: reviewedAt } : c
+            ),
+          },
+          entry
+        );
       });
 
       setSession(nextSession);
@@ -191,8 +198,14 @@ export default function App() {
     }));
   }, []);
 
+  // settingsUpdatedAt は同期の新旧判定用。設定はログではないので
+  // タイムスタンプが無いとどちらが新しいか決められない
   const handleSettings = useCallback((patch) => {
-    setDb((prev) => ({ ...prev, settings: normalizeSettings({ ...normalizeSettings(prev.settings), ...patch }) }));
+    setDb((prev) => ({
+      ...prev,
+      settings: normalizeSettings({ ...normalizeSettings(prev.settings), ...patch }),
+      settingsUpdatedAt: Date.now(),
+    }));
   }, []);
 
   const handleAddCollection = useCallback((name) => {
@@ -390,6 +403,7 @@ export default function App() {
             settings={settings}
             collections={collections}
             activeCollectionId={activeCollectionId}
+            sync={sync}
             onChange={handleSettings}
             onReplaceDb={setDb}
             onSelectCollection={handleSelectCollection}

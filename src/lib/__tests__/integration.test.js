@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { makeSeedCards } from "../../data/seedCards.js";
-import { emptyDb } from "../migrations.js";
+import { emptyDb, DEFAULT_COLLECTION_ID } from "../migrations.js";
 import { loadDb, saveDb } from "../storage.js";
 import { rate, buildQueue, isActive, RECENT_REVIEW_COOLDOWN_MS } from "../scheduler.js";
 import { makeLogEntry, appendLog, rebuildState, logsByCard } from "../reviewLog.js";
@@ -46,11 +46,18 @@ describe("初回起動", () => {
     expect(buildQueue(db.cards, 10, T0)).toHaveLength(10);
   });
 
-  it("シードのIDが端末ごとに異なる(旧 seed-0 の衝突問題の解消)", () => {
+  // D-18: 以前は「端末ごとに違うID」を正としていたが、これは誤りだった。
+  // シードは全端末で中身が同じカードなので、IDも同じでなければ同期のたびに
+  // 10枚ずつ増える。
+  it("2台目の端末でも同じシードIDになる — 同期しても増えない", () => {
     const a = initialDb();
     const b = initialDb();
-    const idsA = new Set(a.cards.map((c) => c.id));
-    expect(b.cards.some((c) => idsA.has(c.id))).toBe(false);
+    expect(b.cards.map((c) => c.id)).toEqual(a.cards.map((c) => c.id));
+  });
+
+  it("既定のコレクションIDが端末間で一致する", () => {
+    expect(initialDb().activeCollectionId).toBe(initialDb().activeCollectionId);
+    expect(initialDb().activeCollectionId).toBe(DEFAULT_COLLECTION_ID);
   });
 });
 

@@ -13,9 +13,15 @@ const RAW = [
   { hint: "彼はバスで会社に行きます", pre: "He goes ", answer: "to work", post: " by bus.", note: "workは無冠詞。前置詞toの抜けに注意", src: "AIドリル 8/16" },
 ];
 
-// NOTE: 以前は `seed-0`〜`seed-9` の固定IDを振っていたため、2台目の端末で
-// 初回起動すると同じIDのカードが独立に生まれ、同期時に衝突していた(D-16)。
-// makeCard 経由でUUIDを振ることで構造的に防ぐ。
+// **固定IDに戻した(D-18)。**
+//
+// 一度UUIDに変えたが、これは判断を誤っていた。「同じIDが2端末で生まれると
+// 衝突する」と考えたが、シードは全端末で**中身が完全に同じ**カードなので、
+// 同じIDであるほうが正しい — 同期すれば1枚に畳まれる。UUIDにすると逆に、
+// 端末を増やすたびに同じ内容のカードが10枚ずつ積み上がる。
+//
+// IDに版を含めてあるのは、将来シードの中身を変えたときに、既存ユーザーの
+// 手元にある旧シードを黙って書き換えないため。
 export function makeSeedCards(collectionId, now = Date.now()) {
-  return RAW.map((c) => makeCard(c, collectionId, now));
+  return RAW.map((c, i) => ({ ...makeCard(c, collectionId, now), id: `seed-v1-${i}` }));
 }

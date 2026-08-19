@@ -19,7 +19,7 @@ import {
   bestComboOf,
   currentCombo,
 } from "./lib/session.js";
-import { makeCollection } from "./lib/migrations.js";
+import { makeCollection, mergeCollections } from "./lib/migrations.js";
 import { deriveStats } from "./lib/stats.js";
 import { useNow } from "./lib/useNow.js";
 import { normalizeSettings } from "./lib/settings.js";
@@ -225,6 +225,11 @@ export default function App() {
     setDb((prev) => ({ ...prev, activeCollectionId: id }));
   }, []);
 
+  // 統合(D-18)。同期前に端末ごとの既定デッキが別IDで生まれてしまった場合の後始末
+  const handleMergeCollections = useCallback((fromId, toId) => {
+    setDb((prev) => mergeCollections(prev, fromId, toId, Date.now()));
+  }, []);
+
   // リーチカード(T-09)。そのセットで触ったカードの中から最大1枚だけ提案する
   const leech = useMemo(
     () => (view === "complete" && session ? findLeechInSession(activeCards, reviewLog, session.cardIds) : null),
@@ -409,6 +414,7 @@ export default function App() {
             onSelectCollection={handleSelectCollection}
             onAddCollection={handleAddCollection}
             onRenameCollection={handleRenameCollection}
+            onMergeCollections={handleMergeCollections}
             onBack={() => setView("home")}
           />
         )}

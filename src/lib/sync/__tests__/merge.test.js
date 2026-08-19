@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { mergeDb, rebuildMerged, changedCardsBetween, pickNewer, stableStringify } from "../merge.js";
-import { emptyDb, SCHEMA_VERSION } from "../../migrations.js";
+import { emptyDb, SCHEMA_VERSION, DEFAULT_COLLECTION_ID, mergeCollections } from "../../migrations.js";
+import { makeSeedCards } from "../../../data/seedCards.js";
 import { makeCard } from "../../parser.js";
 import { deriveStats } from "../../stats.js";
 import { isDue } from "../../scheduler.js";
@@ -260,5 +261,88 @@ describe("changedCardsBetween", () => {
   it("変化が無ければ空", () => {
     const log = [review("r1", "c1", T0, true)];
     expect(changedCardsBetween(log, log).size).toBe(0);
+  });
+});
+
+// ------------------------------------------------------------------
+// D-18 — 同じ「英語」が2つできて別プールに見えた件の回帰テスト
+//
+// 端末ごとにUUIDで既定コレクションを作っていたため、PCとスマホが同じ
+// データを持っているのに、それぞれ自分のデッキしか表示していなかった。
+// ------------------------------------------------------------------
+
+describe("既定コレクションは端末間で同じID(D-18)", () => {
+  it("2台の初回起動が同じデッキを指す", () => {
+    const a = emptyDb(T0);
+    const b = emptyDb(T0 + 5 * MIN);
+    expect(a.activeCollectionId).toBe(b.activeCollectionId);
+    expect(mergeDb(a, b, T0).collections.filter((c) => !c.deletedAt)).toHaveLength(1);
+  });
+
+  it("2台で同じシードを持っていても同期で増えない", () => {
+    const a = { ...emptyDb(T0), cards: makeSeedCards(DEFAULT_COLLECTION_ID, T0) };
+    const b = { ...emptyDb(T0), cards: makeSeedCards(DEFAULT_COLLECTION_ID, T0 + MIN) };
+    const m = mergeDb(a, b, T0);
+    expect(m.cards).toHaveLength(10);
+    // 同期を繰り返しても増えない
+    expect(mergeDb(m, b, T0).cards).toHaveLength(10);
+  });
+
+  it("合流後、両端末のカードが1つのデッキに入る", () => {
+    const seed = makeSeedCards(DEFAULT_COLLECTION_ID, T0);
+    const extra = makeCard({ hint: "追加", pre: "", answer: "added", post: "" }, DEFAULT_COLLECTION_ID, T0 + MIN);
+    const m = mergeDb(
+      { ...emptyDb(T0), cards: seed },
+      { ...emptyDb(T0), cards: [...seed, extra] },
+      T0
+    );
+    const active = m.cards.filter((c) => c.collectionId === m.activeCollectionId && !c.deletedAt);
+    expect(active).toHaveLength(11);
+  });
+});
+
+describe("mergeCollections — 既に割れてしまった端末の後始末", () => {
+  const twoDecks = () => {
+    const db = emptyDb(T0);
+    const other = { id: "col-old", name: "英語", promptLabel: "英語で言うと?", createdAt: T0, updatedAt: T0, deletedAt: null };
+    return {
+      ...db,
+      collections: [...db.collections, other],
+      cards: [
+        makeCard({ hint: "A", pre: "", answer: "a", post: "" }, db.activeCollectionId, T0),
+        makeCard({ hint: "B", pre: "", answer: "b", post: "" }, "col-old", T0),
+        makeCard({ hint: "C", pre: "", answer: "c", post: "" }, "col-old", T0),
+      ],
+    };
+  };
+
+  it("カードが移り、1枚も失われない", () => {
+    const db = twoDecks();
+    const merged = mergeCollections(db, "col-old", db.activeCollectionId, T0 + MIN);
+    expect(merged.cards).toHaveLength(3);
+    expect(merged.cards.every((c) => c.collectionId === db.activeCollectionId)).toBe(true);
+  });
+
+  it("空になった側は tombstone になり、同期で他端末にも伝わる", () => {
+    const before = twoDecks(); // 端末B(統合前の状態のまま)
+    const merged = mergeCollections(before, "col-old", before.activeCollectionId, T0 + MIN); // 端末A
+    expect(merged.collections.find((c) => c.id === "col-old").deletedAt).toBe(T0 + MIN);
+
+    // 端末Bが古い状態を持っていても、後からの統合が勝つ
+    const other = mergeDb(before, merged, T0 + 2 * MIN);
+    expect(other.collections.find((c) => c.id === "col-old").deletedAt).toBe(T0 + MIN);
+    expect(other.cards).toHaveLength(3);
+    expect(other.cards.every((c) => c.collectionId !== "col-old")).toBe(true);
+  });
+
+  it("統合中のデッキを開いていたら移動先へ移る", () => {
+    const db = { ...twoDecks(), activeCollectionId: "col-old" };
+    expect(mergeCollections(db, "col-old", DEFAULT_COLLECTION_ID, T0 + MIN).activeCollectionId).toBe(DEFAULT_COLLECTION_ID);
+  });
+
+  it("同じIDどうし・存在しない移動先は何もしない", () => {
+    const db = twoDecks();
+    expect(mergeCollections(db, "col-old", "col-old", T0)).toBe(db);
+    expect(mergeCollections(db, "col-old", "col-nope", T0)).toBe(db);
   });
 });

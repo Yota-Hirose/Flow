@@ -23,10 +23,11 @@ const ghost = {
 
 export default function Settings({
   db, settings, collections, activeCollectionId, sync,
-  onChange, onReplaceDb, onSelectCollection, onAddCollection, onRenameCollection, onBack,
+  onChange, onReplaceDb, onSelectCollection, onAddCollection, onRenameCollection, onMergeCollections, onBack,
 }) {
   const [notice, setNotice] = useState(null);
   const [newName, setNewName] = useState("");
+  const [mergeFrom, setMergeFrom] = useState(null);
   const fileRef = useRef(null);
 
   const active = collections.find((c) => c.id === activeCollectionId);
@@ -100,6 +101,41 @@ export default function Settings({
             追加
           </button>
         </div>
+        {/* 統合。同期前に別々のIDで既定デッキができてしまった端末の後始末(D-18)。
+            自動では寄せない — どれとどれが同じものかは人にしか分からない */}
+        {alive.length > 1 && active && (
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--edge)" }}>
+            <div style={label}>ほかのコレクションを「{active.name}」へ統合</div>
+            <div style={{ fontSize: 11, color: "var(--faint)", lineHeight: 1.7, marginBottom: 8 }}>
+              カードは移すだけで消えません。同じものが2つに分かれてしまったときに使います。
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {alive.filter((c) => c.id !== activeCollectionId).map((c) => {
+                const n = db.cards.filter((x) => x.collectionId === c.id && !x.deletedAt).length;
+                const confirming = mergeFrom === c.id;
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => {
+                      if (!confirming) {
+                        setMergeFrom(c.id);
+                        setTimeout(() => setMergeFrom((v) => (v === c.id ? null : v)), 4000);
+                        return;
+                      }
+                      onMergeCollections(c.id, activeCollectionId);
+                      setMergeFrom(null);
+                      setNotice({ ok: true, text: `「${c.name}」の${n}枚を「${active.name}」へ移しました` });
+                    }}
+                    style={{ ...ghost, borderColor: confirming ? "var(--violet)" : "var(--edge)", color: confirming ? "var(--ink)" : "var(--dim)" }}
+                  >
+                    {confirming ? `本当に統合する?(${n}枚)` : `${c.name}(${n}枚)`}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {active && (
           <div style={{ marginTop: 12 }}>
             <div style={label}>「{active.name}」の問いかけ</div>
